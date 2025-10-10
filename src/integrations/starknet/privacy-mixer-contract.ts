@@ -4,6 +4,9 @@
  */
 
 import { Account, Contract, Provider, RpcProvider, CallData, InvokeFunctionResponse } from 'starknet';
+import { ENV, getStarknetRpc } from '@/config/env';
+import { PRIVACY_MIXER } from '@/config/constants';
+import privacyMixerAbi from '@/config/privacy-mixer-abi.json';
 
 export interface MixingStats {
     total_deposits: bigint;
@@ -89,17 +92,18 @@ export class PrivacyMixerContract implements PrivacyMixerContractInterface {
     constructor(
         contractAddress: string,
         account: Account,
-        provider: Provider,
-        contractAbi: any[]
+        provider: Provider
     ) {
         this.account = account;
         this.provider = provider;
-        this.contract = new Contract(contractAbi, contractAddress, provider);
+        this.contract = new Contract(privacyMixerAbi, contractAddress, provider);
         this.contract.connect(account);
     }
 
     async deposit(commitment: string, amount: bigint): Promise<InvokeFunctionResponse> {
-        return await this.contract.deposit(commitment, amount);
+        // Convert hex string to felt252 format for Cairo
+        const commitmentFelt = commitment.startsWith('0x') ? commitment : '0x' + commitment;
+        return await this.contract.deposit(commitmentFelt, amount);
     }
 
     async batch_deposit(commitments: string[], amounts: bigint[]): Promise<InvokeFunctionResponse> {
@@ -113,7 +117,11 @@ export class PrivacyMixerContract implements PrivacyMixerContractInterface {
         amount: bigint,
         proof: string[]
     ): Promise<InvokeFunctionResponse> {
-        return await this.contract.withdraw(nullifier, commitment, recipient, amount, proof);
+        // Convert hex strings to felt252 format for Cairo
+        const nullifierFelt = nullifier.startsWith('0x') ? nullifier : '0x' + nullifier;
+        const commitmentFelt = commitment.startsWith('0x') ? commitment : '0x' + commitment;
+
+        return await this.contract.withdraw(nullifierFelt, commitmentFelt, recipient, amount, proof);
     }
 
     async get_anonymity_set_size(): Promise<bigint> {
@@ -337,17 +345,15 @@ export class PrivacyMixerContract implements PrivacyMixerContractInterface {
 
 // Factory function to create contract instance
 export async function createPrivacyMixerContract(
-    contractAddress: string,
     accountPrivateKey: string,
-    rpcUrl: string = 'https://alpha4.starknet.io'
+    accountAddress: string,
+    rpcUrl: string = getStarknetRpc(),
+    contractAddress: string = PRIVACY_MIXER.CONTRACT_ADDRESS
 ): Promise<PrivacyMixerContract> {
     const provider = new RpcProvider({ nodeUrl: rpcUrl });
-    const account = new Account(provider, contractAddress, accountPrivateKey);
+    const account = new Account(provider, accountAddress, accountPrivateKey);
 
-    // Load contract ABI (in practice, this would be loaded from a file or registry)
-    const contractAbi: any[] = []; // TODO: Load actual ABI from compiled contract
-
-    return new PrivacyMixerContract(contractAddress, account, provider, contractAbi);
+    return new PrivacyMixerContract(contractAddress, account, provider);
 }
 
 // Contract deployment helper

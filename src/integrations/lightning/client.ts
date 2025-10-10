@@ -1,5 +1,6 @@
 // Real Lightning Network client implementation
 import { decode } from 'bolt11';
+import { generateMockInvoice } from '@/utils/lightning';
 
 export interface LightningInvoiceInfo {
     invoice: string;
@@ -75,7 +76,27 @@ export class RealLightningClient implements LightningClient {
     }
 
     async decodeInvoice(invoice: string): Promise<LightningInvoiceInfo> {
+        // Handle mock invoices without actual bolt11 decoding
+        if (invoice.includes('mock')) {
+            const amountMatch = invoice.match(/lnbc(\d+)u/);
+            const amountMsat = amountMatch ? parseInt(amountMatch[1]) * 1000 : 1000;
+
+            return {
+                invoice,
+                amountMsat,
+                settled: false,
+                paymentHash: 'hash_' + invoice.slice(-10),
+                description: 'Mock Lightning payment',
+                expiry: Math.floor(Date.now() / 1000) + 3600
+            };
+        }
+
         try {
+            // Validate invoice format first
+            if (!invoice || !invoice.startsWith('ln')) {
+                throw new Error('Invalid invoice format: must start with "ln"');
+            }
+
             const decoded = decode(invoice);
 
             return {
@@ -89,7 +110,8 @@ export class RealLightningClient implements LightningClient {
                 cltvExpiry: decoded.tagsObject.min_final_cltv_expiry
             };
         } catch (error) {
-            throw new Error(`Failed to decode invoice: ${error}`);
+            console.error('Failed to decode Lightning invoice:', invoice, error);
+            throw new Error(`Failed to decode invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -300,42 +322,60 @@ export class RealLightningClient implements LightningClient {
 
     // HTTP client for LND REST API
     private async lndCall(method: string, path: string, data?: any): Promise<any> {
-        if (!this.nodeEndpoint) {
-            throw new Error('LND endpoint not configured');
+        // If running in the browser, route through Next.js API proxy endpoints to avoid exposing macaroon
+        const isBrowser = typeof window !== 'undefined';
+
+        if (isBrowser) {
+            // Map original LND path to our internal API routes
+            if (path === '/v1/invoices' && method === 'POST') {
+                const r = await fetch('/api/lightning/invoice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        amountMsat: Number(data?.value_msat ?? data?.valueMsat ?? 0),
+                        memo: data?.memo,
+                        expiry: Number(data?.expiry ?? 3600)
+                    })
+                });
+                if (!r.ok) throw new Error('Proxy invoice creation failed');
+                return r.json();
+            }
+            if (path === '/v1/channels/transactions' && method === 'POST') {
+                const r = await fetch('/api/lightning/pay', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        invoice: data?.payment_request,
+                        timeoutSeconds: data?.timeout_seconds || 60
+                    })
+                });
+                if (!r.ok) throw new Error('Proxy payment failed');
+                return r.json();
+            }
+            if (path === '/v1/getinfo' && method === 'GET') {
+                const r = await fetch('/api/lightning/info');
+                if (!r.ok) throw new Error('Proxy getinfo failed');
+                return r.json();
+            }
+            throw new Error(`Unsupported proxied LND call from browser: ${method} ${path}`);
         }
+
+        // Server-side direct call
+        if (!this.nodeEndpoint) throw new Error('LND endpoint not configured');
 
         const url = `${this.nodeEndpoint}${path}`;
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json'
-        };
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (this.macaroon) headers['Grpc-Metadata-macaroon'] = this.macaroon;
 
-        if (this.macaroon) {
-            headers['Grpc-Metadata-macaroon'] = this.macaroon;
-        }
+        const options: RequestInit = { method, headers };
+        if (data && method !== 'GET') options.body = JSON.stringify(data);
 
-        const options: RequestInit = {
-            method,
-            headers
-        };
-
-        if (data && method !== 'GET') {
-            options.body = JSON.stringify(data);
-        }
-
-        // Handle self-signed certificates in development
         if (this.tlsCert && typeof process !== 'undefined' && process.env.NODE_ENV === 'development') {
-            // Note: In production, proper certificate validation should be used
-            (options as any).agent = new (await import('https')).Agent({
-                rejectUnauthorized: false
-            });
+            (options as any).agent = new (await import('https')).Agent({ rejectUnauthorized: false });
         }
 
         const response = await fetch(url, options);
-
-        if (!response.ok) {
-            throw new Error(`LND API error: ${response.status} ${response.statusText}`);
-        }
-
+        if (!response.ok) throw new Error(`LND API error: ${response.status} ${response.statusText}`);
         return response.json();
     }
 }
@@ -346,17 +386,36 @@ export class MockLightningClient implements LightningClient {
     private invoices = new Map<string, LightningInvoiceInfo>();
 
     async decodeInvoice(invoice: string): Promise<LightningInvoiceInfo> {
-        // Parse mock invoice format
-        const amountMatch = invoice.match(/lnbc(\d+)u/);
-        const amountMsat = amountMatch ? parseInt(amountMatch[1]) * 1000 : 1000;
+        // Handle mock invoices without actual bolt11 decoding
+        if (invoice.includes('mock')) {
+            const amountMatch = invoice.match(/lnbc(\d+)u/);
+            const amountMsat = amountMatch ? parseInt(amountMatch[1]) * 1000 : 1000;
 
-        return {
-            invoice,
-            amountMsat,
-            settled: false,
-            paymentHash: 'hash_' + invoice.slice(-10),
-            description: 'Mock Lightning payment'
-        };
+            return {
+                invoice,
+                amountMsat,
+                settled: false,
+                paymentHash: 'hash_' + invoice.slice(-10),
+                description: 'Mock Lightning payment'
+            };
+        }
+
+        // For real bolt11 invoices, use the decode function
+        try {
+            const decoded = decode(invoice);
+            return {
+                invoice,
+                amountMsat: typeof decoded.millisatoshis === 'number' ? decoded.millisatoshis :
+                    typeof decoded.millisatoshis === 'string' ? parseInt(decoded.millisatoshis) : 0,
+                settled: false,
+                paymentHash: decoded.tagsObject.payment_hash,
+                description: decoded.tagsObject.description,
+                expiry: decoded.timeExpireDate ? Math.floor(decoded.timeExpireDate / 1000) : undefined,
+                cltvExpiry: decoded.tagsObject.min_final_cltv_expiry
+            };
+        } catch (error) {
+            throw new Error(`Failed to decode invoice: ${error}`);
+        }
     }
 
     async createInvoice(
@@ -365,7 +424,9 @@ export class MockLightningClient implements LightningClient {
         expiry: number = 3600
     ): Promise<LightningInvoiceInfo> {
         const paymentHash = 'hash_' + Date.now();
-        const invoice = `lnbc${Math.floor(amountMsat / 1000)}u1p${paymentHash.slice(-8)}mock`;
+        // Generate a proper-looking mock bolt11 invoice
+        const sats = Math.max(1, Math.floor(amountMsat / 1000));
+        const invoice = generateMockInvoice(sats, memo, paymentHash);
 
         const invoiceInfo: LightningInvoiceInfo = {
             invoice,

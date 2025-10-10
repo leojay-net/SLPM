@@ -5,6 +5,7 @@ import { RealCashuClient } from '@/integrations/cashu/client';
 import { mixerEngine } from './engine';
 import { globalEventBus } from '@/events/bus';
 import { PipelineTransfer, EcashProof } from '@/domain/types';
+import { generateMockInvoice } from '@/utils/lightning';
 
 const atomiq = new RealAtomiqSwapClient(process.env.NEXT_PUBLIC_NETWORK === 'MAINNET' ? 'MAINNET' : 'TESTNET');
 const _lnClient = new RealLightningClient(
@@ -60,7 +61,9 @@ export class PipelineOrchestrator {
             this.update(id, { state: 'SWAP_OUT_STRK_COMPLETED', intermediateBtcMsat: BigInt(quote1.amountOut) * 1000n });
 
             // 2. Create LN invoice (mint side) & mark deposit
-            this.update(id, { state: 'LN_DEPOSIT_PENDING', lnInvoice: 'ln_mock_invoice_' + id });
+            // Generate a proper bolt11-formatted mock invoice
+            const mockInvoice = generateMockInvoice(Number(quote1.amountOut), 'Privacy Mixer', id.slice(-6));
+            this.update(id, { state: 'LN_DEPOSIT_PENDING', lnInvoice: mockInvoice });
             // simulate settlement
             this.update(id, { state: 'LN_DEPOSIT_SETTLED' });
 

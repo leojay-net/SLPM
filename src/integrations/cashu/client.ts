@@ -41,16 +41,30 @@ export class RealCashuClient implements CashuClient {
     private mint: CashuMint;
     private wallet: CashuWallet;
     private initialized = false;
+    private mintUrl: string;
 
     constructor(mintUrl: string) {
+        this.mintUrl = mintUrl;
         this.mint = new CashuMint(mintUrl);
         this.wallet = new CashuWallet(this.mint);
+
+        // For Node.js environments, add better error handling
+        if (typeof window === 'undefined') {
+            console.log(`🪙 Initializing Cashu client for testnet mint: ${mintUrl}`);
+        }
     }
 
     private async ensureInitialized(): Promise<void> {
         if (!this.initialized) {
-            await this.wallet.loadMint();
-            this.initialized = true;
+            try {
+                console.log(`🔗 Connecting to Cashu mint: ${this.mintUrl}`);
+                await this.wallet.loadMint();
+                this.initialized = true;
+                console.log(`✅ Cashu mint connected successfully`);
+            } catch (error) {
+                console.warn(`⚠️ Failed to connect to Cashu mint: ${error instanceof Error ? error.message : String(error)}`);
+                throw new Error(`Cashu mint connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
         }
     }
 

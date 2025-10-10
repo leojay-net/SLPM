@@ -6,15 +6,22 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:e2e": "npx tsx src/utils/run-e2e-test.ts",
+    "test:mixer": "npx tsx src/utils/e2e-privacy-mixer-test.ts",
+    "setup:testnet": "npx tsx src/utils/setup-testnet-account.ts",
+    "deploy:braavos": "npx tsx src/utils/deploy-braavos-account.ts"
   },
   "dependencies": {
-    "@atomiqlabs/sdk": "^6.0.0",
+    "@atomiqlabs/sdk": "^6.0.3",
+    "@atomiqlabs/storage-sqlite": "^3.0.0",
     "@cashu/cashu-ts": "^2.7.2",
     "@heroicons/react": "^2.2.0",
+    "@scure/starknet": "^2.0.0",
     "@starknet-io/get-starknet": "^4.0.7",
     "bitcoinjs-lib": "^6.1.7",
     "bolt11": "^1.4.1",
+    "dotenv": "^17.2.2",
     "get-starknet": "^4.0.0",
     "next": "15.5.3",
     "react": "19.1.0",
@@ -33,5 +40,8 @@
     "eslint-config-next": "15.5.3",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "@atomiqlabs/chain-starknet": "^5.1.5"
   }
 }

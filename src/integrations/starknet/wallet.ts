@@ -1,6 +1,7 @@
 // Starknet wallet integration for ArgentX and Braavos
 import { connect, disconnect } from '@starknet-io/get-starknet';
 import { Account, Provider, Contract, CallData, cairo, RpcProvider, num } from 'starknet';
+import { ENV, getStarknetRpc } from '@/config/env';
 import { PrivacyMixerContract, createPrivacyMixerContract } from './privacy-mixer-contract';
 
 export type WalletType = 'argentX' | 'braavos' | 'bitkeep' | 'okx';
@@ -17,6 +18,9 @@ export interface WalletConnection {
     provider: Provider;
     isConnected: boolean;
     walletType: WalletType;
+    // Raw injected wallet object (swo) from get-starknet or injected wallet
+    // Needed to construct SDK-compatible StarknetSigner via WalletAccount.connect
+    walletProviderRaw?: any;
 }
 
 export interface TransactionResult {
@@ -75,15 +79,36 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
     private connection: WalletConnection | null = null;
     private rpcProvider: RpcProvider;
     private mixerContract: PrivacyMixerContract | null = null;
+    // Maintain a static/shared connection across instances to avoid duplicate wallet popups
+    private static sharedConnection: WalletConnection | null = null;
 
     constructor(rpcUrl?: string) {
         this.rpcProvider = new RpcProvider({
-            nodeUrl: rpcUrl || 'https://starknet-mainnet.public.blastapi.io/rpc/v0_7'
+            nodeUrl: rpcUrl || getStarknetRpc()
         });
     }
 
     async connect(preferredWallet?: WalletType): Promise<WalletConnection> {
         try {
+            // Check if we have a shared connection and validate it's still working
+            if (RealStarknetWalletClient.sharedConnection) {
+                try {
+                    // Test the connection by trying to access the account address
+                    const testAddress = RealStarknetWalletClient.sharedConnection.account.address;
+                    if (testAddress) {
+                        this.connection = RealStarknetWalletClient.sharedConnection;
+                        console.log('🔄 Reusing existing wallet connection', {
+                            address: testAddress,
+                            walletType: this.connection.walletType
+                        });
+                        return this.connection;
+                    }
+                } catch (validationError) {
+                    console.warn('⚠️ Cached connection is stale, creating new connection:', validationError);
+                    RealStarknetWalletClient.sharedConnection = null;
+                }
+            }
+
             if (typeof window === 'undefined') {
                 throw new Error('Wallet connection is only available in the browser');
             }
@@ -96,12 +121,14 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
             if (want === 'braavos') injected = w.starknet_braavos || injected;
             if (want === 'okx') injected = w.starknet_okxwallet || injected;
 
-            // Fallback: open wallet selection modal if available
+            // Only use fallback modal if no injected wallet found AND no shared connection
             let provider: any = injected;
             if (!provider) {
+                console.log('🔍 No injected wallet found, trying modal fallback...');
                 try {
                     provider = await connect({ modalMode: 'always' } as any);
-                } catch {
+                } catch (modalError) {
+                    console.warn('⚠️ Modal connection failed:', modalError);
                     // ignore and handle below
                 }
             }
@@ -118,12 +145,26 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
             const walletType = this.detectWalletType(provider);
             const account = (provider.account || provider) as unknown as Account;
 
+            // IMPORTANT: Use the wallet's provider, not our RPC provider for wallet operations
+            // This ensures we maintain the wallet context for balance queries
+            const walletProvider = provider.provider || this.rpcProvider;
+
             this.connection = {
                 account,
-                provider: this.rpcProvider,
+                provider: walletProvider, // Use wallet's provider to maintain wallet context
                 isConnected: true,
                 walletType,
+                walletProviderRaw: provider // keep raw provider (swo) for SDK signer creation
             };
+
+            // Cache globally for subsequent client instances
+            RealStarknetWalletClient.sharedConnection = this.connection;
+            console.log('✅ New wallet connection established and cached', {
+                address: this.connection.account.address,
+                walletType: this.connection.walletType,
+                providerType: walletProvider === this.rpcProvider ? 'RPC' : 'Wallet'
+            });
+
             return this.connection;
         } catch (error) {
             throw new Error(`Failed to connect to Starknet wallet: ${error}`);
@@ -134,6 +175,8 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
         if (this.connection) {
             await disconnect();
             this.connection = null;
+            // Clear shared connection so next connect will prompt for wallet selection
+            RealStarknetWalletClient.sharedConnection = null;
         }
     }
 
@@ -157,41 +200,95 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
             throw new Error('Wallet not connected');
         }
 
-        // Default to ETH if no token specified
-        const ethAddress = '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7';
-        const contractAddress = tokenAddress || ethAddress;
+        // Handle native STRK vs ERC-20 tokens
+        if (!tokenAddress || tokenAddress.toLowerCase() === 'strk' || tokenAddress.toLowerCase() === 'native') {
+            // Get native STRK balance using the official STRK token contract
+            // Native STRK is actually an ERC-20 token on Starknet
+            const NATIVE_STRK_CONTRACT = '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d'; // Sepolia STRK
+            try {
+                // Use the same approach as the E2E test - direct contract creation and balance_of call
+                const ERC20_ABI = [
+                    {
+                        name: 'balance_of',
+                        type: 'function',
+                        inputs: [{ name: 'account', type: 'core::starknet::contract_address::ContractAddress' }],
+                        outputs: [{ type: 'core::integer::u256' }],
+                        state_mutability: 'view'
+                    }
+                ];
 
-        try {
-            // Call balanceOf function
-            const result = await this.connection.provider.callContract({
-                contractAddress,
-                entrypoint: 'balanceOf',
-                calldata: [this.connection.account.address]
-            });
+                // Use our configured RPC provider instead of wallet's provider for reliability
+                // This ensures we use the stable Alchemy endpoint instead of the wallet's default
+                const strkContract = new Contract(ERC20_ABI, NATIVE_STRK_CONTRACT, this.rpcProvider);
+                const balance = await strkContract.balance_of(this.connection.account.address);
 
-            const balance = BigInt(result[0]);
+                console.log('💰 STRK balance check via contract:', {
+                    address: this.connection.account.address,
+                    contract: NATIVE_STRK_CONTRACT,
+                    balance: balance.toString()
+                });
 
-            // Get token info
-            const decimalsResult = await this.connection.provider.callContract({
-                contractAddress,
-                entrypoint: 'decimals',
-                calldata: []
-            });
+                return {
+                    symbol: 'STRK',
+                    address: NATIVE_STRK_CONTRACT,
+                    balance: BigInt(balance.toString()),
+                    decimals: 18 // STRK has 18 decimals
+                };
+            } catch (error) {
+                console.error('Failed to get STRK balance via contract:', error);
+                throw new Error(`Failed to get STRK balance: ${error}`);
+            }
+        } else {
+            // Handle ERC-20 tokens using same pattern as test
+            try {
+                const ERC20_ABI = [
+                    {
+                        name: 'balance_of',
+                        type: 'function',
+                        inputs: [{ name: 'account', type: 'core::starknet::contract_address::ContractAddress' }],
+                        outputs: [{ type: 'core::integer::u256' }],
+                        state_mutability: 'view'
+                    },
+                    {
+                        name: 'decimals',
+                        type: 'function',
+                        inputs: [],
+                        outputs: [{ type: 'core::integer::u8' }],
+                        state_mutability: 'view'
+                    },
+                    {
+                        name: 'symbol',
+                        type: 'function',
+                        inputs: [],
+                        outputs: [{ type: 'core::felt252' }],
+                        state_mutability: 'view'
+                    }
+                ];
 
-            const symbolResult = await this.connection.provider.callContract({
-                contractAddress,
-                entrypoint: 'symbol',
-                calldata: []
-            });
+                // Use our configured RPC provider instead of wallet's provider for reliability
+                const tokenContract = new Contract(ERC20_ABI, tokenAddress, this.rpcProvider);
 
-            return {
-                symbol: num.toHex(symbolResult[0]), // Convert felt to string
-                address: contractAddress,
-                balance,
-                decimals: Number(decimalsResult[0])
-            };
-        } catch (error) {
-            throw new Error(`Failed to get balance: ${error}`);
+                const balance = await tokenContract.balance_of(this.connection.account.address);
+                const decimals = await tokenContract.decimals();
+                const symbol = await tokenContract.symbol();
+
+                console.log('💰 Token balance check via contract:', {
+                    address: this.connection.account.address,
+                    contract: tokenAddress,
+                    balance: balance.toString(),
+                    decimals: decimals.toString(),
+                    symbol: symbol.toString()
+                });
+
+                return {
+                    symbol: num.toHex(symbol), // Convert felt to string
+                    address: tokenAddress,
+                    balance: BigInt(balance.toString()),
+                    decimals: Number(decimals.toString())
+                };
+            } catch (error) {
+                throw new Error(`Failed to get token balance: ${error}`);
+            }
         }
     }
 
@@ -225,7 +322,7 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
         }
 
         try {
-            const receipt = await this.connection.provider.waitForTransaction(txHash);
+            const receipt = await this.rpcProvider.waitForTransaction(txHash);
 
             return {
                 transactionHash: txHash,
@@ -236,18 +333,33 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
         } catch (error) {
             throw new Error(`Failed to wait for transaction: ${error}`);
         }
-    } async transfer(
+    }
+
+    async transfer(
         tokenAddress: string,
         recipient: string,
         amount: bigint
     ): Promise<TransactionResult> {
-        const calls = [{
-            contractAddress: tokenAddress,
-            entrypoint: 'transfer',
-            calldata: CallData.compile([recipient, cairo.uint256(amount)])
-        }];
+        // Handle native STRK vs ERC-20 tokens
+        if (!tokenAddress || tokenAddress.toLowerCase() === 'strk' || tokenAddress.toLowerCase() === 'native') {
+            // Native STRK transfer - direct account execution
+            const calls = [{
+                contractAddress: recipient,
+                entrypoint: '__default__', // Native transfer entrypoint
+                calldata: CallData.compile([cairo.uint256(amount)])
+            }];
 
-        return this.sendTransaction(calls);
+            return this.sendTransaction(calls);
+        } else {
+            // ERC-20 token transfer
+            const calls = [{
+                contractAddress: tokenAddress,
+                entrypoint: 'transfer',
+                calldata: CallData.compile([recipient, cairo.uint256(amount)])
+            }];
+
+            return this.sendTransaction(calls);
+        }
     }
 
     async approve(
@@ -255,6 +367,12 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
         spender: string,
         amount: bigint
     ): Promise<TransactionResult> {
+        // Native STRK doesn't need approval - only ERC-20 tokens do
+        if (!tokenAddress || tokenAddress.toLowerCase() === 'strk' || tokenAddress.toLowerCase() === 'native') {
+            throw new Error('Native STRK does not require approval - use direct transfer');
+        }
+
+        // ERC-20 token approval
         const calls = [{
             contractAddress: tokenAddress,
             entrypoint: 'approve',
@@ -290,7 +408,7 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
             throw new Error('Wallet not connected');
         }
 
-        return this.connection.provider.callContract({
+        return this.rpcProvider.callContract({
             contractAddress,
             entrypoint,
             calldata
@@ -304,10 +422,11 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
         }
 
         try {
-            this.mixerContract = await createPrivacyMixerContract(
+            // Create contract directly since we already have the connected account
+            this.mixerContract = new PrivacyMixerContract(
                 contractAddress,
-                '', // We'll use the connected account instead
-                this.rpcProvider.channel.nodeUrl || 'https://alpha4.starknet.io'
+                this.connection.account,
+                this.rpcProvider
             );
         } catch (error) {
             console.error('Failed to initialize mixer contract:', error);
@@ -387,6 +506,24 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
         // Default fallback
         return 'argentX';
     }
+}
+
+// Helper: Build SDK-compatible StarknetSigner using WalletAccount.connect(swo)
+// Mirrors atomiq-webapp approach to avoid "Invalid signer provided" errors
+export async function createAtomiqStarknetSigner(conn: WalletConnection) {
+    if (!conn?.walletProviderRaw) throw new Error('No wallet provider available for signer');
+    const { WalletAccount, RpcProvider } = await import('starknet');
+    const { StarknetSigner } = await import('@atomiqlabs/chain-starknet');
+
+    // Use the same RPC used across the app
+    const rpcUrl = getStarknetRpc();
+    const rpc = new RpcProvider({ nodeUrl: rpcUrl });
+
+    // Connect WalletAccount using the injected provider (swo)
+    // Then wrap into Atomiq StarknetSigner
+    // @ts-ignore - WalletAccount.connect is available in starknet >=7
+    const walletAccount = await (WalletAccount as any).connect(rpc, conn.walletProviderRaw);
+    return new StarknetSigner(walletAccount);
 }
 
 // Mock implementation for testing
@@ -543,4 +680,14 @@ export class StarknetWalletManager {
     getSupportedWallets(): WalletType[] {
         return Array.from(this.clients.keys());
     }
+}
+
+// Global wallet client instance for easy access
+let walletClientInstance: StarknetWalletClient | null = null;
+
+export function getWalletClient(): StarknetWalletClient {
+    if (!walletClientInstance) {
+        walletClientInstance = new RealStarknetWalletClient();
+    }
+    return walletClientInstance;
 }
