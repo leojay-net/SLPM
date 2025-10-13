@@ -1,7 +1,6 @@
 // Starknet wallet integration for ArgentX and Braavos
 import { connect, disconnect } from '@starknet-io/get-starknet';
 import { Account, Provider, Contract, CallData, cairo, RpcProvider, num } from 'starknet';
-import { ENV, getStarknetRpc } from '@/config/env';
 import { PrivacyMixerContract, createPrivacyMixerContract } from './privacy-mixer-contract';
 
 export type WalletType = 'argentX' | 'braavos' | 'bitkeep' | 'okx';
@@ -18,9 +17,6 @@ export interface WalletConnection {
     provider: Provider;
     isConnected: boolean;
     walletType: WalletType;
-    // Raw injected wallet object (swo) from get-starknet or injected wallet
-    // Needed to construct SDK-compatible StarknetSigner via WalletAccount.connect
-    walletProviderRaw?: any;
 }
 
 export interface TransactionResult {
@@ -84,7 +80,7 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
 
     constructor(rpcUrl?: string) {
         this.rpcProvider = new RpcProvider({
-            nodeUrl: rpcUrl || getStarknetRpc()
+            nodeUrl: rpcUrl || 'https://starknet-mainnet.public.blastapi.io/rpc/v0_7'
         });
     }
 
@@ -154,7 +150,6 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
                 provider: walletProvider, // Use wallet's provider to maintain wallet context
                 isConnected: true,
                 walletType,
-                walletProviderRaw: provider // keep raw provider (swo) for SDK signer creation
             };
 
             // Cache globally for subsequent client instances
@@ -508,24 +503,6 @@ export class RealStarknetWalletClient implements StarknetWalletClient {
     }
 }
 
-// Helper: Build SDK-compatible StarknetSigner using WalletAccount.connect(swo)
-// Mirrors atomiq-webapp approach to avoid "Invalid signer provided" errors
-export async function createAtomiqStarknetSigner(conn: WalletConnection) {
-    if (!conn?.walletProviderRaw) throw new Error('No wallet provider available for signer');
-    const { WalletAccount, RpcProvider } = await import('starknet');
-    const { StarknetSigner } = await import('@atomiqlabs/chain-starknet');
-
-    // Use the same RPC used across the app
-    const rpcUrl = getStarknetRpc();
-    const rpc = new RpcProvider({ nodeUrl: rpcUrl });
-
-    // Connect WalletAccount using the injected provider (swo)
-    // Then wrap into Atomiq StarknetSigner
-    // @ts-ignore - WalletAccount.connect is available in starknet >=7
-    const walletAccount = await (WalletAccount as any).connect(rpc, conn.walletProviderRaw);
-    return new StarknetSigner(walletAccount);
-}
-
 // Mock implementation for testing
 export class MockStarknetWalletClient implements StarknetWalletClient {
     private connected = false;
@@ -680,14 +657,4 @@ export class StarknetWalletManager {
     getSupportedWallets(): WalletType[] {
         return Array.from(this.clients.keys());
     }
-}
-
-// Global wallet client instance for easy access
-let walletClientInstance: StarknetWalletClient | null = null;
-
-export function getWalletClient(): StarknetWalletClient {
-    if (!walletClientInstance) {
-        walletClientInstance = new RealStarknetWalletClient();
-    }
-    return walletClientInstance;
 }

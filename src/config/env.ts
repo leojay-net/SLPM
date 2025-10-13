@@ -1,7 +1,7 @@
 // Centralized environment parsing and defaults
 
 export const ENV = {
-    NETWORK: (process.env.NEXT_PUBLIC_NETWORK || 'TESTNET') as 'MAINNET' | 'TESTNET',
+    NETWORK: (process.env.NEXT_PUBLIC_NETWORK || 'MAINNET') as 'MAINNET' | 'TESTNET',
 
     // Starknet RPC Configuration
     STARKNET_RPC: process.env.NEXT_PUBLIC_STARKNET_RPC || process.env.STARKNET_RPC || '',
@@ -24,7 +24,13 @@ export const ENV = {
         .map((s) => s.trim())
         .filter(Boolean),
     CASHU_DEFAULT_MINT:
-        process.env.NEXT_PUBLIC_CASHU_MINT || process.env.CASHU_MINT || 'https://mint.minibits.cash',
+        process.env.NEXT_PUBLIC_CASHU_MINT || process.env.CASHU_MINT || 'https://mint.coinos.io',
+
+    // Privacy behavior overrides
+    CASHU_SINGLE_MINT:
+        (process.env.NEXT_PUBLIC_CASHU_SINGLE_MINT || process.env.CASHU_SINGLE_MINT || 'false') === 'true',
+    DISABLE_CASHU_SPLIT:
+        (process.env.NEXT_PUBLIC_DISABLE_CASHU_SPLIT || process.env.DISABLE_CASHU_SPLIT || 'false') === 'true',
 
     // Rate / Pricing Overrides
     // If STRK_BTC_RATE provided (BTC per STRK), convert to sats; else use explicit STRK_SATS_RATE; else default 125
@@ -50,10 +56,15 @@ export function getStarknetRpc(): string {
         return ENV.STARKNET_RPC;
     }
 
-    // Fallback to public RPCs based on network
-    return ENV.NETWORK === 'MAINNET'
-        ? "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/kwgGr9GGk4YyLXuGfEvpITv1jpvn3PgP"
-        : "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_8/kwgGr9GGk4YyLXuGfEvpITv1jpvn3PgP";
+    // Use network-specific defaults
+    switch (ENV.NETWORK) {
+        case 'MAINNET':
+            return 'https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/kwgGr9GGk4YyLXuGfEvpITv1jpvn3PgP';
+        case 'TESTNET':
+            return 'https://starknet-sepolia.public.blastapi.io/rpc/v0_7';
+        default:
+            return 'https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/kwgGr9GGk4YyLXuGfEvpITv1jpvn3PgP';  // Default to mainnet now
+    }
 }
 
 // Configuration validation
@@ -104,43 +115,74 @@ export function validateConfig(): { valid: boolean; errors: string[]; warnings: 
 
 // Check if configuration is ready for testnet testing
 export function isTestnetReady(): boolean {
-    const starknetRpc = getStarknetRpc();
-    return !!(
+    const checks = [
         ENV.NETWORK === 'TESTNET' &&
-        starknetRpc &&
+        ENV.STARKNET_RPC &&
+        ENV.STARKNET_PRIVATE_KEY &&
         ENV.CASHU_DEFAULT_MINT
-    );
+    ];
+
+    return checks.every(Boolean);
 }
 
-// Get testnet configuration summary
-export function getTestnetStatus(): {
-    ready: boolean;
-    starknetRpc: string;
+// Check if configuration is ready for mainnet operations
+export function isMainnetReady(): boolean {
+    const isClientSide = typeof window !== 'undefined';
+
+    const checks = [
+        ENV.NETWORK === 'MAINNET' &&
+        ENV.STARKNET_RPC &&
+        (isClientSide || ENV.STARKNET_PRIVATE_KEY) && // Private key only required server-side
+        ENV.CASHU_DEFAULT_MINT &&
+        ENV.LND_URL && ENV.LND_MACAROON  // Lightning required for mainnet
+    ];
+
+    return checks.every(Boolean);
+}
+
+// Get network configuration status
+export function getNetworkStatus(): {
+    network: string;
+    starknetRpc: boolean;
+    privateKey: boolean;
+    cashuMint: boolean;
+    lightningNode: boolean;
     lightningConfigured: boolean;
-    cashuConfigured: boolean;
-    recommendations: string[];
+    cashuMints: number;
+    ready: boolean;
+    warnings: string[];
 } {
-    const recommendations: string[] = [];
-
-    if (!ENV.LND_URL) {
-        recommendations.push('Configure Lightning node for full Lightning Network integration');
-    }
-
-    if (ENV.CASHU_MINTS.length < 2) {
-        recommendations.push('Configure multiple Cashu mints for enhanced privacy');
-    }
-
-    if (!ENV.STARKNET_PRIVATE_KEY) {
-        recommendations.push('Configure Starknet private key for server-side operations');
-    }
+    const lightningConfigured = Boolean(ENV.LND_URL && ENV.LND_MACAROON);
+    const isReady = ENV.NETWORK === 'MAINNET' ? isMainnetReady() : isTestnetReady();
 
     return {
-        ready: isTestnetReady(),
-        starknetRpc: getStarknetRpc(),
-        lightningConfigured: !!ENV.LND_URL,
-        cashuConfigured: !!ENV.CASHU_DEFAULT_MINT,
-        recommendations
+        network: ENV.NETWORK,
+        starknetRpc: Boolean(ENV.STARKNET_RPC),
+        privateKey: Boolean(ENV.STARKNET_PRIVATE_KEY),
+        cashuMint: Boolean(ENV.CASHU_DEFAULT_MINT),
+        lightningNode: Boolean(ENV.LND_URL),
+        lightningConfigured,
+        cashuMints: ENV.CASHU_MINTS.length,
+        ready: isReady,
+        warnings: (() => {
+            const warnings = [];
+            const isClientSide = typeof window !== 'undefined';
+
+            if (!ENV.STARKNET_RPC) warnings.push('STARKNET_RPC not configured');
+            if (!ENV.STARKNET_PRIVATE_KEY && !isClientSide) warnings.push('STARKNET_PRIVATE_KEY not configured');
+            if (!ENV.CASHU_DEFAULT_MINT) warnings.push('CASHU_DEFAULT_MINT not configured');
+            if (ENV.NETWORK === 'MAINNET') {
+                if (!ENV.LND_URL) warnings.push('Lightning node (LND_URL) required for mainnet');
+                if (!ENV.LND_MACAROON) warnings.push('Lightning authentication (LND_MACAROON) required for mainnet');
+            }
+            return warnings;
+        })()
     };
+}
+
+// Backward compatibility
+export function getTestnetStatus() {
+    return getNetworkStatus();
 }
 
 // Initialize configuration validation

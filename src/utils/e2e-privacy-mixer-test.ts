@@ -16,7 +16,6 @@
  */
 
 import { hash, num, uint256, Contract, Account, RpcProvider, CallData } from "starknet";
-import { getStarknetRpc } from "@/config/env";
 import fs, { readFileSync } from 'fs';
 import path, { resolve } from 'path';
 import { config } from 'dotenv';
@@ -35,14 +34,14 @@ import { LightningClient } from '../integrations/lightning/client';
 // Configuration
 const CONFIG = {
     NETWORK: ENV.NEXT_PUBLIC_NETWORK || 'TESTNET',
-    RPC_URL: ENV.NEXT_PUBLIC_STARKNET_RPC || getStarknetRpc(),
+    RPC_URL: ENV.NEXT_PUBLIC_STARKNET_RPC || 'https://starknet-sepolia.public.blastapi.io',
     MIXER_CONTRACT: ENV.NEXT_PUBLIC_MIXER_CONTRACT_ADDRESS || ENV.MIXER_CONTRACT_ADDRESS || '',
     STRK_TOKEN: '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d', // Sepolia STRK
     SENDER_PRIVATE_KEY: ENV.SENDER_PRIVATE_KEY || '',
     SENDER_ADDRESS: ENV.SENDER_ADDRESS || '',
     RECIPIENT_ADDRESS: ENV.RECIPIENT_ADDRESS || '',
     TEST_AMOUNT: '1000000000000000000', // 1 STRK in wei
-    CASHU_MINT: ENV.NEXT_PUBLIC_CASHU_DEFAULT_MINT || 'https://mint.minibits.cash',
+    CASHU_MINT: ENV.NEXT_PUBLIC_CASHU_DEFAULT_MINT || 'https://mint.minibits.cash/Bitcoin',
 };
 
 // Validate required configuration

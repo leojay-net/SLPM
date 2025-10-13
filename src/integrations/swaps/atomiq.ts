@@ -1,4 +1,4 @@
-
+// Real Atomiq swap integration using @atomiqlabs/sdk - Starknet + Lightning only
 import {
     BitcoinNetwork,
     SwapperFactory,
@@ -13,11 +13,10 @@ import {
     RpcProviderWithRetries,
     StarknetFees
 } from '@atomiqlabs/chain-starknet';
-import { RpcProvider, constants } from 'starknet';
 import { ENV, getStarknetRpc } from '@/config/env';
-import { getSharedSwapAccount, getSharedSwapSigner } from '../starknet/sharedAccount';
+import { getSharedSwapAccount } from '../starknet/sharedAccount';
 
-
+// Simple result type for focused Starknet ↔ Lightning swaps
 interface SwapResult {
     success: boolean;
     txId?: string;
@@ -26,7 +25,6 @@ interface SwapResult {
     toCurrency: string;
     route: string;
     error?: string;
-    note?: string;
 }
 
 export interface AtomiqSwapQuote {
@@ -67,20 +65,20 @@ export interface AtomiqSwapExecution {
 }
 
 export interface AtomiqSwapClient {
-
+    // Core swap operations
     getQuote(from: AtomiqSwapQuote['from'], to: AtomiqSwapQuote['to'], amount: bigint, exactIn?: boolean, destinationAddress?: string): Promise<AtomiqSwapQuote>;
     execute(quoteId: string, walletSigner?: any, lightningInvoice?: string): Promise<AtomiqSwapExecution>;
     getStatus(executionId: string): Promise<AtomiqSwapExecution>;
 
-
+    // Advanced operations
     refund(executionId: string, walletSigner?: any): Promise<{ txId: string }>;
     waitForCompletion(executionId: string, timeoutMs?: number): Promise<boolean>;
 
-
+    // Lightning-specific operations
     getInvoice(executionId: string): Promise<string>;
     payInvoice(invoice: string, walletSigner?: any): Promise<{ preimage: string }>;
 
-
+    // Swap limits and info
     getSwapLimits(from: string, to: string): Promise<{ min: bigint; max: bigint }>;
 }
 
@@ -94,14 +92,14 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
     private tokens: any = null;
     private initializationPromise: Promise<void> | null = null;
 
-    constructor(network: 'MAINNET' | 'TESTNET' = 'TESTNET', starknetRpc?: string) {
+    constructor(network: 'MAINNET' | 'TESTNET' = ENV.NETWORK as 'MAINNET' | 'TESTNET', starknetRpc?: string) {
         this.network = network;
         this.starknetRpc = starknetRpc || getStarknetRpc();
         this.isNodeJs = typeof window === 'undefined';
 
         console.log(`🚀 Initializing Atomiq client for ${network} using RPC: ${this.starknetRpc}`);
 
-
+        // Only initialize in browser environment to avoid SSR issues
         if (!this.isNodeJs) {
             this.initializeForBrowser();
         } else {
@@ -111,11 +109,11 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
 
     private async initializeForBrowser(): Promise<void> {
         try {
-
+            // Create factory with Starknet-only support (no Solana)
             this.factory = new SwapperFactory<[StarknetInitializerType]>([StarknetInitializer] as const);
             this.tokens = this.factory.Tokens;
 
-
+            // Start initialization (async)
             this.initializationPromise = this.initializeAtomiqFactory();
         } catch (error) {
             console.error('❌ Failed to create Atomiq factory:', error);
@@ -128,7 +126,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             return;
         }
 
-
+        // No simulation mode - user explicitly disabled it
         this.initialized = false;
         console.error('❌ Atomiq SDK initialization failed and simulation mode is disabled');
         throw new Error('Atomiq SDK initialization failed - simulation mode disabled');
@@ -138,51 +136,36 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         try {
             console.log('🔧 Initializing Atomiq SDK with Starknet + Lightning support...');
 
-
-            if (!(BigInt.prototype as any).toJSON) {
-                (BigInt.prototype as any).toJSON = function () {
-                    return this.toString();
-                };
-                console.log('✅ Added BigInt.prototype.toJSON for JSON serialization');
-            }
-
             if (!this.factory) {
                 throw new Error('Factory not initialized - browser environment required');
             }
 
-
+            // Create swapper configuration matching the demo pattern
             const starknetRpc = new RpcProviderWithRetries({ nodeUrl: this.starknetRpc });
-
-
-            const plainStarknetRpc = new RpcProvider({ nodeUrl: this.starknetRpc });
-
 
             const swapperConfig: any = {
                 chains: {
                     STARKNET: {
                         rpcUrl: starknetRpc,
-                        chainId: this.network === 'MAINNET'
-                            ? constants.StarknetChainId.SN_MAIN
-                            : constants.StarknetChainId.SN_SEPOLIA,
-                        //fees: new StarknetFees(plainStarknetRpc)  
+                        fees: new StarknetFees(starknetRpc)
                     }
                 },
                 bitcoinNetwork: this.network === 'MAINNET' ? BitcoinNetwork.MAINNET : BitcoinNetwork.TESTNET
             };
 
-
+            // For Node.js environments, use simple memory storage to avoid SQLite dependency issues
             if (this.isNodeJs) {
                 console.log('✅ Using memory storage for Node.js testing environment');
-
+                // Use default in-memory storage for simplicity
             }
 
             console.log('✅ Configured storage for privacy mixer environment');
 
-
+            // Create swapper using factory with Starknet-only configuration
             this.swapper = this.factory.newSwapper(swapperConfig);
             console.log('✅ Atomiq Swapper created for Starknet ↔ Lightning');
 
-
+            // Initialize the swapper
             await this.swapper.init();
 
             console.log('✅ Atomiq SDK initialized - ready for STRK ↔ Lightning swaps');
@@ -192,7 +175,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         } catch (error) {
             console.error('❌ Failed to initialize Atomiq SDK:', error instanceof Error ? error.message : String(error));
             console.error('Full error:', error);
-            throw error;
+            throw error; // Don't fall back to simulation as requested
         }
     }
 
@@ -221,16 +204,16 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         try {
             await this.ensureInitialized();
 
-
+            // Preflight: fetch STRK input limits to avoid 'Amount too high' from SDK
             try {
                 const limits = await this.getSwapLimits('STRK', 'BTC_LN');
                 const invoiceDecoded = (() => { try { return bolt11.decode(lightningInvoice); } catch { return null; } })();
                 const invoiceMsats = invoiceDecoded?.millisatoshis ? BigInt(invoiceDecoded.millisatoshis) : undefined;
                 const invoiceSats = invoiceMsats ? Number(invoiceMsats / 1000n) : undefined;
 
-
-
-
+                // Note: limits are for STRK input, but we only know Lightning output amount
+                // The SDK will calculate required STRK input based on current exchange rates
+                // For now, just log the values for debugging
                 console.log('🔍 Preflight limits check (STRK input limits):', {
                     invoiceSats,
                     strkMaxLimit: limits.max.toString(),
@@ -238,15 +221,15 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                     note: 'STRK input will be calculated by SDK based on invoice amount'
                 });
 
-
-
+                // Skip input validation since we don't know STRK input amount yet
+                // Let the SDK handle the validation and conversion
 
             } catch (preflight_error) {
                 console.warn('⚠️ Preflight limits check failed, proceeding with swap:', preflight_error);
             }
 
             console.log(`🔄 Starting STRK → Lightning swap for amount: ${amount}`);
-
+            // Normalize Starknet source address (felt252) to 0x + 64 hex chars
             let normalizedSource = sourceAddress.trim().toLowerCase();
             if (!normalizedSource.startsWith('0x')) {
                 normalizedSource = '0x' + normalizedSource;
@@ -265,7 +248,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             if (hexBody.length < 64) {
                 normalizedSource = '0x' + hexBody.padStart(64, '0');
             } else if (hexBody.length > 64) {
-
+                // Some wallets return full felt length already (<= 64). If >64 it's invalid here.
                 return {
                     success: false,
                     amount,
@@ -276,8 +259,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                 };
             }
             console.log('🧾 Normalized Starknet source address:', normalizedSource);
-
-
+            // We now expect a BOLT11 invoice generated upstream (e.g. Cashu mint quote)
             const invoice = lightningInvoice.trim();
             const bolt11Pattern = /^(lnbc|lntb|lnbcrt)[0-9a-z]+$/i;
             const isBolt11 = bolt11Pattern.test(invoice);
@@ -292,23 +274,10 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                 };
             }
 
-
+            // Decode BOLT11 invoice to inspect amount
             let satsFromInvoice: bigint | undefined;
             try {
                 const decoded = bolt11.decode(invoice);
-                const currentTime = Date.now() / 1000;
-                const invoiceTimestamp = decoded.timestamp || 0;
-                const expiry = decoded.timeExpireDate ? (decoded.timeExpireDate - invoiceTimestamp) : 3600;
-
-                console.log('🧾 Invoice decoded:', {
-                    network: decoded.network,
-                    amount: decoded.satoshis,
-                    millisatoshis: decoded.millisatoshis,
-                    expiry: expiry,
-                    timestamp: invoiceTimestamp,
-                    expired: invoiceTimestamp + expiry < currentTime
-                });
-
                 const msats = decoded.millisatoshis;
                 if (!msats) {
                     return {
@@ -331,22 +300,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                         error: 'Invoice amount is zero'
                     };
                 }
-
-
-                if (invoiceTimestamp + expiry < currentTime) {
-                    return {
-                        success: false,
-                        amount,
-                        fromCurrency: 'STRK',
-                        toCurrency: 'Lightning',
-                        route: 'starknet-to-lightning',
-                        error: 'Lightning invoice has expired'
-                    };
-                }
-
                 console.log(`🧾 Invoice amount parsed: ${satsFromInvoice.toString()} sats`);
-                console.log(`🧾 Invoice network: ${decoded.network?.name || 'unknown'}`);
-                console.log(`🧾 Invoice expires in: ${invoiceTimestamp + expiry - currentTime} seconds`);
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 return {
@@ -359,20 +313,20 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                 };
             }
 
-
-
+            // For Lightning invoices: must use exactOut semantics (Atomiq SDK requirement)
+            // We specify the Lightning output amount (from invoice) and let SDK calculate required STRK input
             const exactIn = false;
 
             console.log(`🔄 Creating STRK → Lightning swap (exactOut): ${satsFromInvoice.toString()} sats output`);
 
-
+            // Create STRK -> Lightning swap using proper Atomiq pattern from demo
             const swap = await this.swapper.swap(
-                this.tokens.STARKNET.STRK,
-                this.tokens.BITCOIN.BTCLN,
-                undefined,
-                false,
-                normalizedSource,
-                invoice
+                this.tokens.STARKNET.STRK,     // From STRK
+                this.tokens.BITCOIN.BTCLN,     // To Lightning
+                undefined,                     // Amount NOT specified - taken from invoice!
+                false,                         // exactIn = false for Lightning (demo pattern)
+                normalizedSource,              // Source address
+                invoice                        // Lightning invoice
             );
 
             console.log('✅ STRK → Lightning swap created:', swap.getId());
@@ -383,16 +337,16 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             console.log('   Output: ' + swap.getOutput());
             console.log('   Quote expiry: ' + swap.getQuoteExpiry() + ' (in ' + (swap.getQuoteExpiry() - Date.now()) / 1000 + ' seconds)');
 
-
-            const signer = getSharedSwapSigner();
-            if (signer) {
-                console.log('🔐 Committing swap with StarknetSigner:', signer.getAddress().slice(0, 10) + '...');
-                await swap.commit(signer);
+            // Use shared swap account signer if configured
+            const sharedSigner = getSharedSwapAccount();
+            if (sharedSigner) {
+                console.log('🔐 Committing swap with shared account:', sharedSigner.getAddress().slice(0, 10) + '...');
+                await swap.commit(sharedSigner);
             } else {
-                throw new Error('No shared swap signer configured - cannot commit swap');
+                throw new Error('No shared swap account configured - cannot commit swap');
             }
 
-
+            // Wait for the Lightning payment to complete
             console.log('⏳ Waiting for Lightning payment...');
             const success = await swap.waitForPayment();
 
@@ -406,11 +360,10 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                     route: 'starknet-to-lightning'
                 };
             } else {
-
-                console.log('❌ Lightning payment failed, refunding...');
-                const refundSigner = getSharedSwapSigner();
-                if (refundSigner) {
-                    await swap.refund(refundSigner);
+                // Payment failed - refund the swap
+                console.log('💸 Lightning payment failed, refunding...');
+                if (sharedSigner) {
+                    await swap.refund(sharedSigner);
                     console.log('✅ Swap refunded successfully');
                 }
                 return {
@@ -445,139 +398,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
     }
 
     /**
-     * Automated Lightning to Starknet swap for mixer flow
-     * Converts Lightning back to STRK for recipient (no user prompts)
-     */
-    async swapLightningToStrkInteractive(strkAmount: number, recipientAddress: string, walletSigner?: any): Promise<SwapResult> {
-        try {
-            await this.ensureInitialized();
-
-            console.log(`🔄 Starting automated Lightning → STRK swap for ${strkAmount} STRK`);
-
-            // Always claim to the shared swap account to match signer
-            const claimSigner = await getSharedSwapSigner();
-            if (!claimSigner) {
-                throw new Error('Shared swap account not configured. Set SHARED_SWAP_ACCOUNT_PRIVATE_KEY');
-            }
-            const sharedAddress = claimSigner.getAddress();
-            console.log('👤 Using shared swap account as recipient/claimer:', sharedAddress);
-
-            // Create swap from Lightning to STRK (destination = shared account)
-            const swap = await this.swapper.swap(
-                this.tokens.BITCOIN.BTCLN,
-                this.tokens.STARKNET.STRK,
-                BigInt(strkAmount * 1e18), // Convert STRK to wei
-                false, // exactOut - we want exactly strkAmount STRK out
-                undefined,
-                sharedAddress
-            );
-
-            console.log('✅ Lightning → STRK swap created:', swap.getId());
-
-            // Get the Lightning invoice to pay
-            const invoice = swap.getAddress();
-            console.log('💰 Lightning invoice generated:', invoice);
-
-            // Decode invoice to show amount
-            let invoiceAmount = 'unknown';
-            try {
-                const bolt11 = await import('bolt11');
-                const decoded = bolt11.decode(invoice);
-                if (decoded.millisatoshis) {
-                    const sats = Number(decoded.millisatoshis) / 1000;
-                    invoiceAmount = `${sats} sats`;
-                }
-            } catch (e) {
-                console.warn('Could not decode invoice amount');
-            }
-
-            // Log swap details for automated mixer flow
-            console.log('💰 Lightning → STRK Swap (Automated Mixer Flow)');
-            console.log(`├── You will receive: ${strkAmount} STRK`);
-            console.log(`├── To shared account: ${sharedAddress.slice(0, 10)}...${sharedAddress.slice(-6)}`);
-            console.log(`├── Invoice amount: ${invoiceAmount}`);
-            console.log(`└── Lightning Invoice: ${invoice}`);
-
-            console.log('⏳ Waiting for Lightning payment confirmation (automated)...');
-
-            // Wait for Lightning payment (automated - no user interaction in mixer flow)
-            const paymentReceived = await swap.waitForPayment();
-
-            if (!paymentReceived) {
-                throw new Error('Lightning payment not received within timeout');
-            }
-
-            console.log('✅ Lightning payment received! Now claiming STRK tokens...');
-
-            // Always use shared swap signer for claiming (must match destination address)
-            const signer = claimSigner;
-
-            // Claim the STRK tokens (this is the missing step!)
-            try {
-                if (swap.canCommitAndClaimInOneShot()) {
-                    // Some chains support committing and claiming in one transaction
-                    console.log('🔄 Committing and claiming in one shot...');
-                    await swap.commitAndClaim(signer);
-                } else {
-                    // Starknet requires separate commit and claim transactions
-                    console.log('🔄 Committing swap...');
-                    await swap.commit(signer);
-
-                    // Mirror atomiq-webapp: small delay on Starknet before claim
-                    try {
-                        await new Promise(res => setTimeout(res, 5000));
-                    } catch { }
-                    console.log('🔄 Claiming STRK tokens...');
-                    await swap.claim(signer);
-                }
-
-                console.log('✅ STRK tokens successfully claimed and delivered!');
-
-                // Get transaction details
-                let txId = swap.getId();
-                try {
-                    // Try to get Starknet transaction ID if available
-                    const starknetTxId = swap.getStarknetTxId?.() || swap.getCommitTxId?.();
-                    if (starknetTxId) {
-                        txId = starknetTxId;
-                        console.log('📄 Starknet TX ID:', txId);
-                    }
-                } catch (e) {
-                    console.warn('Could not get Starknet TX ID:', e);
-                }
-
-                return {
-                    success: true,
-                    txId,
-                    amount: strkAmount,
-                    fromCurrency: 'Lightning',
-                    toCurrency: 'STRK',
-                    route: 'lightning-to-starknet',
-                    note: 'STRK tokens successfully delivered'
-                };
-
-            } catch (claimError) {
-                console.error('❌ Failed to claim STRK tokens:', claimError);
-                throw new Error(`Lightning payment received but failed to claim STRK: ${claimError instanceof Error ? claimError.message : String(claimError)}`);
-            }
-
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error('❌ Interactive Lightning → STRK swap failed:', errorMessage);
-
-            return {
-                success: false,
-                error: errorMessage,
-                amount: strkAmount,
-                fromCurrency: 'Lightning',
-                toCurrency: 'STRK',
-                route: 'lightning-to-starknet'
-            };
-        }
-    }
-
-    /**
-     * Execute Lightning to Starknet swap for final transfer (automated)
+     * Execute Lightning to Starknet swap for final transfer
      * Converts Lightning back to STRK for recipient
      */
     async swapLightningToStrk(amount: number, recipientAddress: string): Promise<SwapResult> {
@@ -586,27 +407,27 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
 
             console.log(`🔄 Starting Lightning → STRK swap for amount: ${amount}`);
 
-
+            // Create Lightning -> STRK swap
             const swap = await this.swapper.swap(
-                this.tokens.BITCOIN.BTCLN,
-                this.tokens.STARKNET.STRK,
-                BigInt(amount),
-                true,
-                undefined,
-                recipientAddress
+                this.tokens.BITCOIN.BTCLN,    // From: Lightning Network
+                this.tokens.STARKNET.STRK,    // To: STRK token
+                BigInt(amount),               // Amount in smallest unit
+                true,                         // exactIn = true
+                undefined,                    // Source address (Lightning invoice generated)
+                recipientAddress              // Destination Starknet address
             );
 
             console.log('✅ Lightning → STRK swap created:', swap.getId());
 
-
+            // Get the Lightning invoice to pay
             const invoice = swap.getAddress();
             console.log('💰 Lightning invoice to pay:', invoice);
 
-
-
+            // For testing, we'll simulate the Lightning payment
+            // In production, this would integrate with your Lightning node
             await this.simulateLightningPayment(invoice);
 
-
+            // Wait for swap completion
             const result = await swap.waitForPayment();
 
             if (result) {
@@ -637,7 +458,74 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         }
     }
 
+    /**
+     * Begin a Lightning → STRK swap and return the BOLT11 invoice without simulating payment.
+     * Use this when an external payer (e.g., Cashu melt) will pay the invoice.
+     */
+    async beginLightningToStrkSwap(amount: number, recipientAddress: string): Promise<{ id: string; invoice: string }> {
+        await this.ensureInitialized();
 
+        console.log(`🔄 (begin) Lightning → STRK swap for amount: ${amount}`);
+
+        const swap = await this.swapper.swap(
+            this.tokens.BITCOIN.BTCLN,    // From: Lightning Network
+            this.tokens.STARKNET.STRK,    // To: STRK token
+            BigInt(amount),               // Amount in sats (smallest unit)
+            true,                         // exactIn = true (LN amount is input)
+            undefined,                    // Source address (not needed for LN)
+            recipientAddress              // Destination Starknet address
+        );
+
+        const invoice = swap.getAddress();
+        const id = swap.getId();
+
+        console.log('✅ (begin) Lightning invoice created:', { id, invoice: typeof invoice === 'string' ? invoice.slice(0, 50) + '…' : String(invoice) });
+        return { id, invoice };
+    }
+
+    /**
+     * Wait for a previously created Lightning → STRK swap to complete after external payment.
+     */
+    async waitLightningToStrkCompletion(id: string, timeoutMs: number = 300000): Promise<boolean> {
+        return this.waitForCompletion(id, timeoutMs);
+    }
+
+    /**
+     * Claim a Lightning → STRK swap on Starknet after the LN invoice is paid.
+     * Uses the shared Starknet account to sign commit/claim transactions.
+     */
+    async claimLightningToStrkSwap(id: string): Promise<{ txId?: string }> {
+        await this.ensureInitialized();
+
+        if (!this.swapper || !this.initialized) {
+            throw new Error('Atomiq SDK not initialized - simulation mode disabled');
+        }
+
+        const swap = await this.swapper.getSwapById(id);
+        if (!swap) throw new Error(`Swap ${id} not found`);
+
+        const signer = getSharedSwapAccount();
+        if (!signer) throw new Error('No shared swap account configured - cannot claim swap');
+
+        try {
+            if (typeof swap.canCommitAndClaimInOneShot === 'function' && swap.canCommitAndClaimInOneShot()) {
+                await swap.commitAndClaim(signer);
+            } else {
+                await swap.commit(signer);
+                await swap.claim(signer);
+            }
+
+            const txId = swap.getBitcoinTxId?.() || swap.getOutputTxId?.() || undefined;
+            console.log('✅ Claimed Lightning → STRK swap on Starknet', { id, txId });
+            return { txId };
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            console.error('❌ Claim Lightning → STRK failed:', msg);
+            throw new Error(`Claim failed for swap ${id}: ${msg}`);
+        }
+    }
+
+    // Interface-required methods for compatibility
     async getQuote(
         from: AtomiqSwapQuote['from'],
         to: AtomiqSwapQuote['to'],
@@ -657,18 +545,18 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             const fromToken = this.mapToAtomiqToken(from);
             const toToken = this.mapToAtomiqToken(to);
 
-
-
+            // Create a quote by creating a swap object (but don't commit it)
+            // This will give us real-time pricing information
             const tempSwap = await this.swapper.swap(
                 fromToken,
                 toToken,
                 amount,
                 exactIn,
                 destinationAddress || undefined,
-                undefined
+                undefined // No Lightning invoice for quote
             );
 
-
+            // Get pricing information from the swap object
             const priceInfo = tempSwap.getPriceInfo();
             const inputAmount = tempSwap.getInput();
             const outputAmount = tempSwap.getOutput();
@@ -703,20 +591,20 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             console.warn('⚠️ Failed to get real-time quote, falling back to estimate:', error);
             const fallbackRate = ENV.STRK_SATS_RATE || 125;
 
-
-
+            // Fallback to conservative estimate if real quote fails
+            // Handle Wei conversion properly: 1 STRK (1e18 Wei) ≈ 700 sats
             let estimatedOutput: bigint;
             let estimatedInput: bigint;
 
             if (exactIn) {
-
+                // Input is in Wei, convert to STRK then to sats
                 const strkAmount = Number(amount) / 1e18;
                 estimatedOutput = BigInt(Math.floor(strkAmount * fallbackRate));
                 estimatedInput = amount;
             } else {
-
-                const strkAmount = Number(amount) / fallbackRate;
-                estimatedInput = BigInt(Math.floor(strkAmount * 1e18));
+                // Output is in sats, convert to STRK then to Wei
+                const strkAmount = Number(amount) / fallbackRate; // amount is sats
+                estimatedInput = BigInt(Math.floor(strkAmount * 1e18)); // Convert to Wei
                 estimatedOutput = amount;
             }
 
@@ -726,11 +614,11 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                 to,
                 amountIn: estimatedInput,
                 amountOut: estimatedOutput,
-                fee: amount / 100n,
+                fee: amount / 100n, // 1% fee estimate
                 swapPrice: exactIn ? 0.001 : 1000,
                 marketPrice: exactIn ? 0.001 : 1000,
                 difference: 0,
-                expiry: Date.now() + 600000,
+                expiry: Date.now() + 600000, // 10 minutes
                 createdAt: Date.now()
             };
         }
@@ -741,16 +629,16 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
      */
     async getStrkToLightningQuote(strkAmount: number): Promise<{ satsOut: number; quote: AtomiqSwapQuote }> {
         try {
-
+            // Convert STRK to Wei for the quote
             const strkAmountWei = BigInt(Math.floor(strkAmount * 1e18));
 
-
-            const shared = getSharedSwapAccount();
-            const sourceAddress = shared?.address || undefined;
+            // Use shared swap account address for quoting
+            const sharedSigner = getSharedSwapAccount();
+            const sourceAddress = sharedSigner?.getAddress() || undefined;
 
             const quote = await this.getQuote('STRK', 'BTC_LN', strkAmountWei, true, sourceAddress);
 
-
+            // Convert output back to sats (assuming it's returned in base units)
             const satsOut = Number(quote.amountOut);
 
             console.log(`📊 STRK → Lightning quote: ${strkAmount} STRK → ${satsOut} sats`);
@@ -759,7 +647,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         } catch (error) {
             console.warn('⚠️ Failed to get STRK → Lightning quote, using fallback:', error);
 
-
+            // Conservative fallback using configured rate
             const fallbackRate = ENV.STRK_SATS_RATE || 125;
             const fallbackSats = Math.floor(strkAmount * fallbackRate);
 
@@ -771,7 +659,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                     to: 'BTC_LN',
                     amountIn: BigInt(Math.floor(strkAmount * 1e18)),
                     amountOut: BigInt(fallbackSats),
-                    fee: BigInt(Math.floor(fallbackSats * 0.01)),
+                    fee: BigInt(Math.floor(fallbackSats * 0.01)), // 1% fee
                     swapPrice: fallbackSats / strkAmount,
                     marketPrice: fallbackSats / strkAmount,
                     difference: 0,
@@ -789,7 +677,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
     async estimateLightningSatsFromStrk(strkAmount: number): Promise<{ satsOut: number; rate: number; source: 'realtime' | 'fallback'; quote?: AtomiqSwapQuote }> {
         try {
             const { satsOut, quote } = await this.getStrkToLightningQuote(strkAmount);
-            const rate = satsOut / Math.max(1e-9, strkAmount);
+            const rate = satsOut / Math.max(1e-9, strkAmount); // protect division
             console.log('📈 Dynamic STRK→sats estimate (realtime):', { strkAmount, satsOut, rate });
             return { satsOut, rate, source: 'realtime', quote };
         } catch (e) {
@@ -805,12 +693,12 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
 
         console.log(`⚡ Executing simplified swap ${quoteId}`);
 
-
+        // For simplified integration, return success status
         return {
             id: quoteId,
             txId: `tx_${Date.now()}`,
             status: 'CLAIMED',
-            amountOut: BigInt(1000000),
+            amountOut: BigInt(1000000), // Mock amount
         };
     }
 
@@ -821,12 +709,12 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         try {
             console.log(`📧 Creating Lightning invoice for ${amount} sats to ${lightningAddress}`);
 
+            // In production, this would integrate with your Lightning node:
+            // 1. Connect to Lightning node (LND, CLN, Eclair, etc.)
+            // 2. Generate invoice for specified amount
+            // 3. Return payment request string
 
-
-
-
-
-
+            // For testnet development, create a valid-looking invoice format
             const timestamp = Math.floor(Date.now() / 1000);
             const mockInvoice = `lntb${amount}u1p${timestamp.toString(16)}h0s9ywmm8dfjk7unn2v4ehgcm00u93b2g3r`;
 
@@ -846,7 +734,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
     private async simulateLightningPayment(invoice: string): Promise<void> {
         console.log(`⚡ Simulating Lightning payment for invoice: ${invoice.slice(0, 20)}...`);
 
-
+        // Simulate network delay for realistic testing
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         console.log('✅ Lightning payment simulation completed');
@@ -860,7 +748,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         }
 
         try {
-
+            // Get swap by ID (executionId is the same as quoteId in our implementation)
             const swap = await this.swapper.getSwapById(executionId);
 
             if (!swap) {
@@ -875,7 +763,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
                 status,
                 txId: swap.getBitcoinTxId?.() || undefined,
                 amountOut: status === 'CLAIMED' ? BigInt(swap.getOutput().toString()) : undefined,
-                lightningPaymentHash: undefined
+                lightningPaymentHash: undefined // Simplified for Starknet ↔ Lightning focus
             };
 
         } catch (error) {
@@ -892,7 +780,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         }
 
         try {
-
+            // Get swap by ID (executionId is the same as quoteId in our implementation)
             const swap = await this.swapper.getSwapById(executionId);
 
             if (!swap) {
@@ -921,7 +809,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         }
 
         try {
-
+            // Get swap by ID (executionId is the same as quoteId in our implementation)
             const swap = await this.swapper.getSwapById(executionId);
 
             if (!swap) {
@@ -930,7 +818,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
 
             console.log(`⏳ Waiting for swap ${executionId} completion (timeout: ${timeoutMs}ms)`);
 
-
+            // Use swap's built-in wait functionality
             return await swap.waitForPayment();
 
         } catch (error) {
@@ -947,7 +835,7 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         }
 
         try {
-
+            // Get swap by ID (executionId is the same as quoteId in our implementation)
             const swap = await this.swapper.getSwapById(executionId);
 
             if (!swap) {
@@ -1137,9 +1025,13 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
 }
 
 // Export the client - user requested "real deal" so we use RealAtomiqSwapClient
-const atomiqClient = new RealAtomiqSwapClient(
-    ENV.NETWORK === 'MAINNET' ? 'MAINNET' : 'TESTNET',
-    getStarknetRpc()
-);
+// Avoid instantiating during SSR to prevent Turbopack module factory errors
+let atomiqClient: RealAtomiqSwapClient | null = null;
+if (typeof window !== 'undefined') {
+    atomiqClient = new RealAtomiqSwapClient(
+        ENV.NETWORK === 'MAINNET' ? 'MAINNET' : 'TESTNET',
+        getStarknetRpc()
+    );
+}
 
-export default atomiqClient;
+export default atomiqClient as unknown as RealAtomiqSwapClient;

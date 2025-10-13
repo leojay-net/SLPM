@@ -4,8 +4,8 @@
  */
 
 import { Account, Contract, Provider, RpcProvider, CallData, InvokeFunctionResponse } from 'starknet';
-import { ENV, getStarknetRpc } from '@/config/env';
 import { PRIVACY_MIXER } from '@/config/constants';
+import { ENV } from '@/config/env';
 import privacyMixerAbi from '@/config/privacy-mixer-abi.json';
 
 export interface MixingStats {
@@ -347,8 +347,8 @@ export class PrivacyMixerContract implements PrivacyMixerContractInterface {
 export async function createPrivacyMixerContract(
     accountPrivateKey: string,
     accountAddress: string,
-    rpcUrl: string = getStarknetRpc(),
-    contractAddress: string = PRIVACY_MIXER.CONTRACT_ADDRESS
+    rpcUrl: string = 'https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_8/kwgGr9GGk4YyLXuGfEvpITv1jpvn3PgP',
+    contractAddress: string = ENV.MIXER_CONTRACT_ADDRESS || PRIVACY_MIXER.CONTRACT_ADDRESS
 ): Promise<PrivacyMixerContract> {
     const provider = new RpcProvider({ nodeUrl: rpcUrl });
     const account = new Account(provider, accountAddress, accountPrivateKey);

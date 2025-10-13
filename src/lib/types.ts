@@ -41,6 +41,8 @@ export type OrchestratorEventType =
     | 'cashu:redeemed'
     | 'mix:progress'
     | 'mix:complete'
+    | 'mix:partial'
+    | 'mix:failed'
     | 'mix:error';
 
 export interface OrchestratorEvent {

@@ -1,22 +1,21 @@
 import { Account, RpcProvider, ec } from 'starknet';
-import { RpcProviderWithRetries, StarknetSigner } from '@atomiqlabs/chain-starknet';
+import { StarknetSigner } from '@atomiqlabs/chain-starknet';
 import { SHARED_SWAP_ACCOUNT_ADDRESS } from '@/config/constants';
 import { ENV, getStarknetRpc } from '@/config/env';
 
 // Lazy singleton for shared swap account (prototype only)
 let sharedAccount: Account | null = null;
-let sharedProvider: RpcProviderWithRetries | null = null;
 let sharedSigner: StarknetSigner | null = null;
+let sharedProvider: RpcProvider | null = null;
 
-export function getSharedSwapAccount(): Account | null {
-    if (sharedAccount) return sharedAccount;
+export function getSharedSwapAccount(): StarknetSigner | null {
+    if (sharedSigner) return sharedSigner;
     if (!ENV.SHARED_SWAP_ACCOUNT_PRIVATE_KEY) {
         return null; // Not configured
     }
 
     const address = (ENV.SHARED_SWAP_ACCOUNT_ADDRESS || SHARED_SWAP_ACCOUNT_ADDRESS).toLowerCase();
-    // Use RpcProviderWithRetries like the SDK example
-    const provider = new RpcProviderWithRetries({ nodeUrl: getStarknetRpc() });
+    const provider = new RpcProvider({ nodeUrl: getStarknetRpc() });
     sharedProvider = provider;
 
     try {
@@ -37,32 +36,24 @@ export function getSharedSwapAccount(): Account | null {
             console.warn('Could not derive public key for shared swap account:', e);
         }
 
-        // Create account with RpcProviderWithRetries like the SDK example
-        sharedAccount = new Account(provider as any, address, pk);
-        return sharedAccount;
+        sharedAccount = new Account(provider, address, pk);
+        sharedSigner = new StarknetSigner(sharedAccount);
+        return sharedSigner;
     } catch (e) {
         console.error('Failed to instantiate shared swap account:', e);
         return null;
     }
 }
 
-export function getSharedSwapProvider(): RpcProviderWithRetries | null {
+export function getSharedSwapProvider(): RpcProvider | null {
     return sharedProvider;
 }
 
-// Create StarknetSigner exactly like the SDK example
-export function getSharedSwapSigner(): StarknetSigner | null {
-    if (sharedSigner) return sharedSigner;
-    const account = getSharedSwapAccount();
-    if (!account) return null;
-
-    try {
-        // Follow the SDK example pattern exactly: new StarknetSigner(account)
-        sharedSigner = new StarknetSigner(account);
-        console.log('✅ Created StarknetSigner with address:', sharedSigner.getAddress());
-        return sharedSigner;
-    } catch (e) {
-        console.error('Failed to create StarknetSigner:', e);
-        return null;
+export function getSharedSwapAccountRaw(): Account | null {
+    // Get the raw Account for contracts that need it
+    if (!sharedSigner) {
+        // Try to initialize if not already done
+        getSharedSwapAccount();
     }
+    return sharedAccount;
 }

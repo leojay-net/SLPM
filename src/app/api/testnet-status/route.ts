@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getTestnetStatus, CONFIG_STATUS, ENV } from '@/config/env';
+import { getTestnetStatus, CONFIG_STATUS, ENV, getStarknetRpc } from '@/config/env';
 import { RealAtomiqSwapClient } from '@/integrations/swaps/atomiq';
 
 export async function GET() {
@@ -37,7 +37,8 @@ export async function GET() {
 
         // Check Starknet RPC
         try {
-            const response = await fetch(testnetStatus.starknetRpc, {
+            const rpcUrl = ENV.STARKNET_RPC || getStarknetRpc();
+            const response = await fetch(rpcUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -56,15 +57,15 @@ export async function GET() {
             ready: testnetStatus.ready,
             network: ENV.NETWORK,
             configuration: {
-                starknetRpc: testnetStatus.starknetRpc,
+                starknetRpcConfigured: testnetStatus.starknetRpc,
                 lightningConfigured: testnetStatus.lightningConfigured,
-                cashuConfigured: testnetStatus.cashuConfigured,
+                cashuConfigured: testnetStatus.cashuMint,
                 valid: config.valid,
                 errors: config.errors,
                 warnings: config.warnings || []
             },
             integrationTests,
-            recommendations: testnetStatus.recommendations,
+            warnings: config.warnings || [],
             readinessScore: Object.values(integrationTests).filter(Boolean).length / 4 * 100,
             timestamp: new Date().toISOString()
         });

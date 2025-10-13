@@ -9,6 +9,10 @@
     "lint": "eslint",
     "test:e2e": "npx tsx src/utils/run-e2e-test.ts",
     "test:mixer": "npx tsx src/utils/e2e-privacy-mixer-test.ts",
+    "test:cashu": "npx tsx test-cashu-mainnet-standalone.ts",
+    "test:cashu:js": "node test-cashu-mainnet-standalone.js",
+    "test:mainnet": "npx tsx test-mainnet-integration.ts",
+    "recover:cashu": "npx tsx recover-cashu-token.ts",
     "setup:testnet": "npx tsx src/utils/setup-testnet-account.ts",
     "deploy:braavos": "npx tsx src/utils/deploy-braavos-account.ts"
   },
@@ -23,6 +27,7 @@
     "bolt11": "^1.4.1",
     "dotenv": "^17.2.2",
     "get-starknet": "^4.0.0",
+    "ln-service": "^57.27.0",
     "next": "15.5.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",

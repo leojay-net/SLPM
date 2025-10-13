@@ -13,6 +13,9 @@ export interface MeltQuote {
     quote: string;
     amount: bigint;
     fee_reserve: bigint;
+    unit?: string;
+    expiry?: number;
+    request?: string;
 }
 
 export interface CashuClient {
@@ -103,36 +106,104 @@ export class RealCashuClient implements CashuClient {
 
     async createMeltQuote(invoice: string): Promise<MeltQuote> {
         await this.ensureInitialized();
+        // If running in browser, proxy via Next API to avoid CORS
+        if (typeof window !== 'undefined') {
+            const res = await fetch('/api/cashu/melt-quote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ invoice, mintUrl: this.mintUrl })
+            });
+            if (!res.ok) throw new Error(`melt-quote failed: ${await res.text()}`);
+            const meltQuote = await res.json();
+            return {
+                quote: meltQuote.quote,
+                amount: BigInt(meltQuote.amount),
+                fee_reserve: BigInt(meltQuote.fee_reserve),
+                unit: meltQuote.unit,
+                expiry: meltQuote.expiry,
+                request: meltQuote.request
+            };
+        }
         const meltQuote = await this.wallet.createMeltQuote(invoice);
 
         return {
             quote: meltQuote.quote,
             amount: BigInt(meltQuote.amount),
-            fee_reserve: BigInt(meltQuote.fee_reserve)
+            fee_reserve: BigInt(meltQuote.fee_reserve),
+            unit: meltQuote.unit,
+            expiry: meltQuote.expiry,
+            request: meltQuote.request
         };
     }
 
     async meltProofs(quote: MeltQuote, proofs: EcashProof[]): Promise<{ change: EcashProof[] }> {
         await this.ensureInitialized();
         const cashuProofs = proofs.map(this.convertFromEcashProof);
+        // If running in browser, proxy via Next API to avoid CORS
+        if (typeof window !== 'undefined') {
+            console.log('🔧 [Cashu Client] Browser path: preparing melt request...', {
+                quoteId: quote.quote?.substring(0, 20) + '...',
+                proofsCount: cashuProofs.length,
+                totalAmount: cashuProofs.reduce((sum, p) => sum + Number(p.amount), 0),
+                mintUrl: this.mintUrl
+            });
 
-        // Create a proper MeltQuoteResponse object with all required fields
+            // Avoid BigInt serialization issues by converting to strings
+            const serializableQuote = {
+                quote: quote.quote,
+                amount: quote.amount.toString(),
+                fee_reserve: quote.fee_reserve.toString(),
+                unit: quote.unit,
+                expiry: quote.expiry,
+                request: quote.request
+            };
+
+            console.log('⚡ [Cashu Client] Sending melt request to server proxy...', {
+                proofsFormat: cashuProofs.length > 0 ? {
+                    firstProofFields: Object.keys(cashuProofs[0]),
+                    firstProofAmount: cashuProofs[0].amount,
+                    firstProofAmountType: typeof cashuProofs[0].amount
+                } : 'no proofs'
+            });
+            const res = await fetch('/api/cashu/melt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ quote: serializableQuote, proofs: cashuProofs, mintUrl: this.mintUrl })
+            });
+
+            if (!res.ok) {
+                const errorText = await res.text();
+                console.error('❌ [Cashu Client] Melt request failed:', {
+                    status: res.status,
+                    statusText: res.statusText,
+                    error: errorText
+                });
+                throw new Error(`melt failed: ${errorText}`);
+            }
+
+            const payload = await res.json();
+            console.log('✅ [Cashu Client] Melt response received:', {
+                changeProofs: payload.change?.length || 0,
+                changeAmount: payload.change?.reduce((sum: number, p: any) => sum + p.amount, 0) || 0
+            });
+
+            const change = (payload.change || []).map(this.convertToEcashProof);
+            return { change };
+        }
+
+        // Node/server path: call mint directly
         const meltQuoteResponse = {
             quote: quote.quote,
             amount: Number(quote.amount),
             fee_reserve: Number(quote.fee_reserve),
             state: 'UNPAID' as const,
-            expiry: Math.floor(Date.now() / 1000) + 3600, // 1 hour expiry
+            expiry: Math.floor(Date.now() / 1000) + 3600,
             payment_preimage: null,
-            request: '', // Will be filled by the actual quote
+            request: '',
             unit: 'sat'
         };
-
         const meltResponse = await this.wallet.meltProofs(meltQuoteResponse, cashuProofs);
-
-        return {
-            change: meltResponse.change?.map(this.convertToEcashProof) || []
-        };
+        return { change: meltResponse.change?.map(this.convertToEcashProof) || [] };
     }
 
     async send(amount: bigint, proofs: EcashProof[]): Promise<{ keep: EcashProof[], send: EcashProof[] }> {

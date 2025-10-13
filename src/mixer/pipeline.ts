@@ -2,6 +2,7 @@ import { randomHex } from '@/crypto/bdhke';
 import { RealAtomiqSwapClient } from '@/integrations/swaps/atomiq';
 import { RealLightningClient } from '@/integrations/lightning/client';
 import { RealCashuClient } from '@/integrations/cashu/client';
+import { ENV } from '@/config/env';
 import { mixerEngine } from './engine';
 import { globalEventBus } from '@/events/bus';
 import { PipelineTransfer, EcashProof } from '@/domain/types';
@@ -13,7 +14,7 @@ const _lnClient = new RealLightningClient(
     process.env.LND_MACAROON || '',
     process.env.LND_TLS || ''
 );
-const _cashuClient = new RealCashuClient(process.env.CASHU_MINT || 'https://mint.minibits.cash');
+const _cashuClient = new RealCashuClient(process.env.CASHU_MINT || ENV.CASHU_DEFAULT_MINT);
 
 const transfers = new Map<string, PipelineTransfer>();
 

@@ -1,16 +1,6 @@
 import { OrchestratorEvent, MixRequest } from '@/lib/types';
 import { MultiMintCashuManager, RealCashuClient } from '@/integrations/cashu/client';
-
-// Utility functions for privacy timing
-function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function jitter(baseMs: number, variance = 0.3): number {
-    const jitterRange = baseMs * variance;
-    const jitterAmount = (Math.random() - 0.5) * 2 * jitterRange;
-    return Math.max(100, Math.floor(baseMs + jitterAmount)); // Minimum 100ms
-}
+import { ENV } from '@/config/env';
 
 export async function stepPrivacy(
     req: MixRequest,
@@ -41,7 +31,8 @@ export async function stepPrivacy(
     try {
         let workingProofs = proofs;
 
-        if (req.enableRandomizedMints && cashuManager) {
+        const multiMintEnabled = req.enableRandomizedMints && cashuManager && !ENV.CASHU_SINGLE_MINT;
+        if (multiMintEnabled) {
             console.log('🌐 SLPM Privacy: Distributing across multiple mints...');
             const distributionAmount = totalProofValue;
             console.log('🌐 SLPM Privacy: Distribution amount:', distributionAmount.toString(), 'sats');
@@ -61,21 +52,46 @@ export async function stepPrivacy(
             console.log('⏭️ SLPM Privacy: Skipping multi-mint distribution (disabled or no manager)');
         }
 
-        // Add time delay after multi-mint distribution
-        if (req.enableRandomizedMints && cashuManager) {
-            console.log('⏱️ SLPM Privacy: Applying delay after multi-mint distribution...');
-            const distributionDelay = jitter(2000); // 2 second base delay with jitter
-            console.log('⏱️ SLPM Privacy: Distribution delay duration:', distributionDelay, 'ms');
-            await delay(distributionDelay);
-            console.log('✅ SLPM Privacy: Post-distribution delay applied');
+        const splitEnabled = req.enableSplitOutputs && req.splitCount > 1 && !ENV.DISABLE_CASHU_SPLIT;
+        if (splitEnabled) {
+            console.log('🔀 SLPM Privacy: Splitting outputs...');
+            const satsAvailable = Number(totalProofValue);
+            const perPart = BigInt(Math.floor(satsAvailable / Math.max(1, req.splitCount)));
+            console.log('🔀 SLPM Privacy: Split parameters:', {
+                totalSats: satsAvailable,
+                splitCount: req.splitCount,
+                perPart: perPart.toString()
+            });
+
+            const splits: typeof workingProofs = [];
+            let pool = workingProofs.slice();
+
+            for (let i = 0; i < req.splitCount; i++) {
+                console.log(`🔀 SLPM Privacy: Creating split ${i + 1}/${req.splitCount}...`);
+                const { keep, send } = await cashu.send(perPart, pool);
+                splits.push(...send);
+                pool = keep;
+                console.log(`🔀 SLPM Privacy: Split ${i + 1} created:`, {
+                    sentProofs: send.length,
+                    keepProofs: keep.length
+                });
+            }
+
+            workingProofs = splits.length ? splits : workingProofs;
+            console.log('🔀 SLPM Privacy: Split result:', {
+                finalProofs: workingProofs.length,
+                splitSuccessful: splits.length > 0
+            });
+
+            onEvent({ type: 'cashu:routed', message: `Split into ${req.splitCount} outputs`, progress: 70 });
+            console.log('✅ SLPM Privacy: Output splitting completed');
+        } else {
+            console.log('⏭️ SLPM Privacy: Skipping output splitting (disabled or invalid split count)');
         }
 
-        // Skip output splitting to avoid "not enough funds" errors
-        console.log('⏭️ SLPM Privacy: Skipping output splitting (disabled to prevent fund errors)');
-
         if (req.enableTimeDelays) {
-            console.log('⏱️ SLPM Privacy: Applying additional time delays...');
-            const delayMs = jitter(3000); // Increased to 3 second base delay
+            console.log('⏱️ SLPM Privacy: Applying time delays...');
+            const delayMs = jitter(1000);
             console.log('⏱️ SLPM Privacy: Delay duration:', delayMs, 'ms');
             await delay(delayMs);
             console.log('✅ SLPM Privacy: Time delay applied');
@@ -85,18 +101,16 @@ export async function stepPrivacy(
 
         if (req.enableAmountObfuscation) {
             console.log('💰 SLPM Privacy: Applying amount obfuscation...');
-            const obfuscationDelay = jitter(1500); // Add delay for obfuscation
-            await delay(obfuscationDelay);
-            console.log('✅ SLPM Privacy: Amount obfuscation applied with', obfuscationDelay, 'ms delay');
+            await delay(200);
+            console.log('✅ SLPM Privacy: Amount obfuscation applied');
         } else {
             console.log('⏭️ SLPM Privacy: Skipping amount obfuscation (disabled)');
         }
 
         if (req.enableDecoyTx) {
             console.log('👻 SLPM Privacy: Applying decoy transactions...');
-            const decoyDelay = jitter(1000); // Add delay for decoy transactions
-            await delay(decoyDelay);
-            console.log('✅ SLPM Privacy: Decoy transactions applied with', decoyDelay, 'ms delay');
+            await delay(200);
+            console.log('✅ SLPM Privacy: Decoy transactions applied');
         } else {
             console.log('⏭️ SLPM Privacy: Skipping decoy transactions (disabled)');
         }
@@ -136,3 +150,6 @@ export async function stepPrivacy(
         throw error;
     }
 }
+
+function delay(ms: number) { return new Promise((res) => setTimeout(res, ms)); }
+function jitter(ms: number) { const v = Math.floor(ms * 0.3); return ms + Math.floor(Math.random() * v); }

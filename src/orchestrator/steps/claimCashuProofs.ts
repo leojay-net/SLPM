@@ -1,5 +1,7 @@
 import { OrchestratorEvent } from '@/lib/types';
 import { RealCashuClient } from '@/integrations/cashu/client';
+const isServer = typeof window === 'undefined';
+import { getDecodedToken } from '@cashu/cashu-ts';
 
 export async function stepClaimCashuProofs(
     mintQuote: any,
@@ -58,6 +60,42 @@ export async function stepClaimCashuProofs(
                 secret: p.secret?.slice(0, 10) + '...'
             }))
         });
+
+        // Create a token so user can save/redeem later
+        try {
+            const totalAmount = proofs.reduce((sum, p) => sum + Number(p.amount), 0);
+            const token = cashu.createToken(proofs);
+            // Persist server-side to avoid loss (server-only)
+            try {
+                // Extract mint URL from token for accurate recovery later
+                let mintUrl = 'unknown';
+                try {
+                    const decoded = getDecodedToken(token);
+                    mintUrl = decoded?.mint || mintUrl;
+                } catch (_) { }
+                if (isServer) {
+                    const { default: TokenVault } = await import('@/storage/tokenVault.server');
+                    await TokenVault.set({
+                        quote: mintQuote.quote,
+                        token,
+                        mintUrl,
+                        amountSats: totalAmount,
+                        proofsCount: proofs.length,
+                        createdAt: Date.now()
+                    });
+                    console.log('💾 SLPM ClaimCashu: Saved ecash token to server vault for quote', mintQuote.quote);
+                }
+            } catch (e) {
+                console.warn('⚠️ SLPM ClaimCashu: Failed to save token to server vault:', e);
+            }
+            if (typeof window !== 'undefined') {
+                const key = `slpm:cashu-token:${mintQuote.quote}`;
+                window.localStorage.setItem(key, token);
+                console.log('💾 SLPM ClaimCashu: Saved ecash token to localStorage under key', key);
+            }
+        } catch (e) {
+            console.warn('⚠️ SLPM ClaimCashu: Could not persist ecash token:', e);
+        }
 
         // Verify total amount matches expectation
         const totalAmount = proofs.reduce((sum, p) => sum + Number(p.amount), 0);

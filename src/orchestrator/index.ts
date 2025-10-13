@@ -8,7 +8,7 @@ import { stepClaimCashuProofs } from './steps/claimCashuProofs';
 import { stepPrivacy } from './steps/privacy';
 import { stepSwapBack } from './steps/swapBack';
 import { stepWithdraw } from './steps/withdraw';
-import { getTestnetStatus, ENV } from '@/config/env';
+import { getNetworkStatus, ENV } from '@/config/env';
 import { RealAtomiqSwapClient } from '@/integrations/swaps/atomiq';
 
 export async function startMix(req: MixRequest, onEvent: (e: OrchestratorEvent) => void) {
@@ -31,16 +31,17 @@ export async function startMix(req: MixRequest, onEvent: (e: OrchestratorEvent) 
     let lightningResult: any = null;
 
     try {
-        // Validate testnet readiness
-        console.log('🔍 SLPM: Validating testnet configuration...');
-        const testnetStatus = getTestnetStatus();
-        console.log('⚙️ SLPM: Testnet status:', testnetStatus);
+        // Validate network configuration readiness
+        console.log(`🔍 SLPM: Validating ${ENV.NETWORK} configuration...`);
+        const networkStatus = getNetworkStatus();
+        console.log(`⚙️ SLPM: ${ENV.NETWORK} status:`, networkStatus);
 
-        if (!testnetStatus.ready) {
-            console.error('❌ SLPM: Testnet configuration incomplete');
-            throw new Error('Testnet configuration incomplete. Check environment variables.');
+        if (!networkStatus.ready) {
+            console.error(`❌ SLPM: ${ENV.NETWORK} configuration incomplete`);
+            console.error('Warnings:', networkStatus.warnings);
+            throw new Error(`${ENV.NETWORK} configuration incomplete. Check environment variables.`);
         }
-        console.log('✅ SLPM: Testnet configuration validated');
+        console.log(`✅ SLPM: ${ENV.NETWORK} configuration validated`);
 
         onEvent({
             type: 'mix:progress',
@@ -133,16 +134,31 @@ export async function startMix(req: MixRequest, onEvent: (e: OrchestratorEvent) 
         });
 
         // Use the new swapBack that handles Cashu → Lightning → STRK for each destination
-        const distributionResults = await stepSwapBack(mixedProofs, req.destinations, cashuClient, onEvent);
+        const distributionResults = await stepSwapBack(mixedProofs, req.destinations, cashuClient, onEvent, mintInvoiceResult.mintQuote.quote);
 
-        console.log('✅ SLPM: Privacy mixing completed successfully');
+        const successfulDistributions = distributionResults.filter(r => r.status === 'CLAIMED').length;
+        const totalDestinations = distributionResults.length;
+        const totalStrkDistributed = distributionResults.reduce((sum, r) => sum + r.strkSent, 0);
+
         console.log('📊 SLPM: Distribution results:', {
-            totalDestinations: distributionResults.length,
-            successfulDistributions: distributionResults.filter(r => r.status === 'CLAIMED').length,
-            totalStrkDistributed: distributionResults.reduce((sum, r) => sum + r.strkSent, 0)
+            totalDestinations,
+            successfulDistributions,
+            totalStrkDistributed,
+            failedDistributions: totalDestinations - successfulDistributions
         });
 
-        console.log('✅ SLPM: All steps completed successfully');
+        // Check if the distribution was actually successful
+        if (successfulDistributions === 0) {
+            throw new Error(`All ${totalDestinations} destination distributions failed - no STRK was successfully delivered`);
+        }
+
+        if (successfulDistributions < totalDestinations) {
+            console.warn(`⚠️ SLPM: Partial success - only ${successfulDistributions}/${totalDestinations} destinations received STRK`);
+        } else {
+            console.log('✅ SLPM: All distributions completed successfully');
+        }
+
+        console.log('✅ SLPM: Privacy mixing completed with distribution results');
 
         // Calculate final privacy metrics
         console.log('📊 SLPM: Calculating final privacy metrics');
@@ -163,13 +179,37 @@ export async function startMix(req: MixRequest, onEvent: (e: OrchestratorEvent) 
             }
         });
 
+        // Determine completion message based on actual results
+        let completionMessage: string;
+        let completionType: 'mix:complete' | 'mix:partial' | 'mix:failed';
+
+        if (successfulDistributions === totalDestinations) {
+            completionMessage = `Privacy mix complete! ${totalStrkDistributed} STRK distributed to ${successfulDistributions} destinations through ${anonymitySetSize}-member anonymity set`;
+            completionType = 'mix:complete';
+        } else if (successfulDistributions > 0) {
+            completionMessage = `Privacy mix partially complete - ${totalStrkDistributed} STRK delivered to ${successfulDistributions}/${totalDestinations} destinations`;
+            completionType = 'mix:partial';
+        } else {
+            completionMessage = `Privacy mix failed - no STRK was successfully delivered to any destination`;
+            completionType = 'mix:failed';
+        }
+
         onEvent({
-            type: 'mix:complete',
-            message: `Privacy mix complete! ${req.amountStrk} STRK mixed through ${anonymitySetSize}-member anonymity set`,
-            progress: 100
+            type: completionType,
+            message: completionMessage,
+            progress: successfulDistributions === totalDestinations ? 100 : 90
         });
 
-        console.log('🎉 SLPM: Privacy mix operation completed successfully!');
+        console.log(`🎉 SLPM: Privacy mix operation result - ${successfulDistributions}/${totalDestinations} destinations successful`);
+
+        // Return results for caller to handle
+        return {
+            success: successfulDistributions > 0,
+            totalDestinations,
+            successfulDistributions,
+            totalStrkDistributed,
+            distributionResults
+        };
 
     } catch (error) {
         console.error('❌ SLPM: Privacy mix operation failed:', error);

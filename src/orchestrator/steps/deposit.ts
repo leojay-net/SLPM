@@ -6,9 +6,9 @@ import { randomHex } from '@/crypto/bdhke';
 import { num } from 'starknet';
 import { generateCommitmentArtifacts, generateSecret } from '@/utils/zk';
 
-// Starknet addresses (testnet)
-const STRK_TOKEN_ADDRESS = '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d'; // STRK on Sepolia
-const MIXER_CONTRACT_ADDRESS = PRIVACY_MIXER.CONTRACT_ADDRESS; // Use deployed contract address
+// Starknet addresses (mainnet)
+const STRK_TOKEN_ADDRESS = '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d'; // STRK on mainnet
+const MIXER_CONTRACT_ADDRESS = ENV.MIXER_CONTRACT_ADDRESS || PRIVACY_MIXER.CONTRACT_ADDRESS; // Use environment config first
 
 export async function stepDeposit(amountStrk: number, onEvent: (e: OrchestratorEvent) => void) {
     console.log('💰 SLPM Deposit: Starting deposit step');

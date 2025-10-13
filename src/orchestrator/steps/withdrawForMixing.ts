@@ -3,7 +3,7 @@ import { RealStarknetWalletClient } from '@/integrations/starknet/wallet';
 import { ENV } from '@/config/env';
 import { PRIVACY_MIXER, SHARED_SWAP_ACCOUNT_ADDRESS } from '@/config/constants';
 import { hash, uint256, num } from 'starknet';
-import { getSharedSwapAccount, getSharedSwapProvider } from '@/integrations/starknet/sharedAccount';
+import { getSharedSwapAccount, getSharedSwapProvider, getSharedSwapAccountRaw } from '@/integrations/starknet/sharedAccount';
 import { PrivacyMixerContract } from '@/integrations/starknet/privacy-mixer-contract';
 
 export async function stepWithdrawForMixing(
@@ -33,11 +33,12 @@ export async function stepWithdrawForMixing(
         });
 
         // Prefer headless shared account if configured (avoids UI popups)
-        const shared = getSharedSwapAccount();
+        const sharedSigner = getSharedSwapAccount();
+        const sharedAccount = getSharedSwapAccountRaw();
         let walletClient: RealStarknetWalletClient | null = null;
         let directMixerContract: PrivacyMixerContract | null = null;
 
-        if (shared) {
+        if (sharedSigner && sharedAccount) {
             console.log('🔄 SLPM Withdraw: Using shared swap account for headless withdrawal');
             // Directly construct mixer contract wrapper with shared account
             const provider = getSharedSwapProvider();
@@ -46,7 +47,7 @@ export async function stepWithdrawForMixing(
             }
             directMixerContract = new PrivacyMixerContract(
                 depositResult.mixerContractAddress,
-                shared,
+                sharedAccount,
                 provider
             );
         } else {

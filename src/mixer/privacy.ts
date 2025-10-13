@@ -42,10 +42,11 @@ export const DEFAULT_PRIVACY_CONFIG: PrivacyConfig = {
     enableMultiMint: true,
     maxMints: 4,
     preferredMints: [
-        'https://mint.minibits.cash',
+        'https://mint.minibits.cash/Bitcoin',
         'https://mint.coinos.io',
-        'https://legend.lnbits.com',
-        'https://mint.bitcoinmints.com'
+        'https://mint.lnserver.com',
+        'https://mint.0xchat.com',
+        'https://legend.lnbits.com/cashu/api/v1/4gr9Xcmz3XEkUNwiBiQGoC'
     ],
 
     minAnonymitySet: 10,

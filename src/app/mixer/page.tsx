@@ -18,8 +18,7 @@ import { MixingView } from '../../components/mixer/MixingView';
 import { CompleteView } from '../../components/mixer/CompleteView';
 import { runMix } from '../../lib/orchestrator';
 import { MixRequest, PrivacyLevel as PLevel } from '../../lib/types';
-import { type WalletType } from '@/integrations/starknet/wallet';
-import { useWallet } from '../../context/WalletContext';
+import { StarknetWalletManager, type WalletType } from '@/integrations/starknet/wallet';
 
 type MixingStep = 'setup' | 'deposit' | 'mixing' | 'complete';
 
@@ -33,8 +32,8 @@ interface MixingSession {
 }
 
 export default function MixerPage() {
-    // Use wallet context for connection management
-    const { connection, isConnecting, connect, disconnect, isConnected, error } = useWallet();
+    // Wallet manager instance (memoized per page mount)
+    const walletManager = useMemo(() => new StarknetWalletManager(), []);
 
     const [session, setSession] = useState<MixingSession>({
         step: 'setup',
@@ -45,7 +44,9 @@ export default function MixerPage() {
         estimatedTime: 0
     });
 
+    const [isConnected, setIsConnected] = useState(false);
     const [showWalletModal, setShowWalletModal] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
     const [notification, setNotification] = useState<{
         show: boolean;
         type: 'success' | 'error' | 'warning' | 'info';
@@ -113,6 +114,7 @@ export default function MixerPage() {
     };
 
     const handleWalletConnect = async (walletId: string) => {
+        setIsConnecting(true);
         try {
             // Map UI id to WalletType used by the manager
             const mapId = (id: string): WalletType => {
@@ -122,11 +124,14 @@ export default function MixerPage() {
                 return 'argentX';
             };
 
-            await connect(mapId(walletId));
+            await walletManager.connectWallet(mapId(walletId));
+            setIsConnected(true);
             setShowWalletModal(false);
             showNotification('success', 'Wallet Connected', `Connected to ${walletId}`);
         } catch {
             showNotification('error', 'Connection Failed', 'Failed to connect wallet. Please try again.');
+        } finally {
+            setIsConnecting(false);
         }
     };
 
@@ -154,8 +159,8 @@ export default function MixerPage() {
         }
 
         const amt = parseFloat(session.amount || '0');
-        if (!amt || amt <= 0 || mixReq.destinations.length === 0) {
-            showNotification('warning', 'Invalid Input', 'Enter amount and at least one destination');
+        if (!amt || amt <= 0 || mixReq.destinations.length === 0 || !mixReq.destinations[0]) {
+            showNotification('warning', 'Invalid Input', 'Enter amount and destination address');
             return;
         }
 
