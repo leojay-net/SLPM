@@ -1,13 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import {
-    BanknotesIcon,
-    ArrowPathIcon,
-    EyeSlashIcon,
-    WalletIcon,
-    CheckCircleIcon
-} from '@heroicons/react/24/outline';
+import React, { useState, useEffect } from 'react';
+import { WalletIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import WalletConnection from '../../components/WalletConnection';
 import TransactionStatus from '../../components/TransactionStatus';
 import Notification from '../../components/Notification';
@@ -18,7 +12,8 @@ import { MixingView } from '../../components/mixer/MixingView';
 import { CompleteView } from '../../components/mixer/CompleteView';
 import { runMix } from '../../lib/orchestrator';
 import { MixRequest, PrivacyLevel as PLevel } from '../../lib/types';
-import { StarknetWalletManager, type WalletType } from '@/integrations/starknet/wallet';
+import { type WalletType } from '@/integrations/starknet/wallet';
+import { useWallet } from '@/context/WalletProvider';
 
 type MixingStep = 'setup' | 'deposit' | 'mixing' | 'complete';
 
@@ -32,8 +27,8 @@ interface MixingSession {
 }
 
 export default function MixerPage() {
-    // Wallet manager instance (memoized per page mount)
-    const walletManager = useMemo(() => new StarknetWalletManager(), []);
+    // Use global wallet context (persistent across pages/reloads)
+    const wallet = useWallet();
 
     const [session, setSession] = useState<MixingSession>({
         step: 'setup',
@@ -66,36 +61,9 @@ export default function MixerPage() {
         anonymitySetSize?: number;
     }>>([]);
 
-    const privacyLevels = {
-        standard: {
-            name: 'Standard Privacy',
-            description: 'Basic privacy protection with 10+ participants',
-            minParticipants: 10,
-            estimatedTime: 5,
-            fee: '0.1%'
-        },
-        enhanced: {
-            name: 'Enhanced Privacy',
-            description: 'Advanced mixing with 50+ participants',
-            minParticipants: 50,
-            estimatedTime: 15,
-            fee: '0.2%'
-        },
-        maximum: {
-            name: 'Maximum Privacy',
-            description: 'Maximum anonymity with 100+ participants',
-            minParticipants: 100,
-            estimatedTime: 30,
-            fee: '0.3%'
-        }
-    };
+    // Privacy level presets are defined and applied within SetupForm; no local copy needed here.
 
-    const steps = [
-        { id: 'setup', name: 'Setup', icon: WalletIcon },
-        { id: 'deposit', name: 'Deposit', icon: BanknotesIcon },
-        { id: 'mixing', name: 'Mixing', icon: ArrowPathIcon },
-        { id: 'complete', name: 'Complete', icon: CheckCircleIcon }
-    ];
+    // Stepper stages are fixed and handled internally; no local steps array needed.
 
     const [mixReq, setMixReq] = useState<MixRequest>({
         amountStrk: 0,
@@ -124,7 +92,7 @@ export default function MixerPage() {
                 return 'argentX';
             };
 
-            await walletManager.connectWallet(mapId(walletId));
+            await wallet.connect(mapId(walletId));
             setIsConnected(true);
             setShowWalletModal(false);
             showNotification('success', 'Wallet Connected', `Connected to ${walletId}`);
@@ -135,22 +103,12 @@ export default function MixerPage() {
         }
     };
 
-    const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const value = e.target.value;
-        if (/^\d*\.?\d*$/.test(value)) {
-            setSession(prev => ({ ...prev, amount: value }));
-        }
-    };
+    // Keep isConnected in sync with context
+    useEffect(() => {
+        setIsConnected(wallet.isConnected);
+    }, [wallet.isConnected]);
 
-    const handlePrivacyLevelChange = (level: PLevel) => {
-        const config = privacyLevels[level];
-        setSession(prev => ({
-            ...prev,
-            privacyLevel: level,
-            anonymitySetSize: config.minParticipants,
-            estimatedTime: config.estimatedTime
-        }));
-    };
+    // Note: amount and privacy level changes are handled within child components via props callbacks
 
     const startMixing = async () => {
         if (!isConnected) {
@@ -251,7 +209,7 @@ export default function MixerPage() {
         }
     };
 
-    const currentStepIndex = steps.findIndex(step => step.id === session.step);
+    // currentStepIndex not used directly; Stepper consumes `session.step`.
 
     return (
         <div className="min-h-screen bg-gray-950 text-white">

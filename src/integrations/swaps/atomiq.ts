@@ -505,7 +505,22 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
         if (!swap) throw new Error(`Swap ${id} not found`);
 
         const signer = getSharedSwapAccount();
-        if (!signer) throw new Error('No shared swap account configured - cannot claim swap');
+        if (!signer) {
+            throw new Error('No shared swap account configured - cannot claim swap');
+        }
+
+        // Validate signer early to avoid opaque SDK errors
+        try {
+            const { validateSharedSwapSigner } = await import('../starknet/sharedAccount');
+            const check = await validateSharedSwapSigner();
+            if (!check.ok) {
+                throw new Error(`Invalid signer provided: ${check.reason || 'unknown reason'}${check.address ? ` (address: ${check.address})` : ''}`);
+            }
+        } catch (valErr) {
+            // Re-throw with context
+            const msg = valErr instanceof Error ? valErr.message : String(valErr);
+            throw new Error(msg.includes('Invalid signer provided') ? msg : `Invalid signer provided! ${msg}`);
+        }
 
         try {
             if (typeof swap.canCommitAndClaimInOneShot === 'function' && swap.canCommitAndClaimInOneShot()) {
@@ -758,11 +773,23 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             const state = swap.getState();
             const status = this.mapSwapState(state);
 
+            // Safely parse output amount (STRK) to Wei
+            let amountOutWei: bigint | undefined = undefined;
+            if (status === 'CLAIMED') {
+                try {
+                    const rawOut: any = swap.getOutput?.() ?? undefined;
+                    amountOutWei = this.parseStrkAmountToWei(rawOut);
+                } catch (e) {
+                    console.warn('⚠️ Failed to parse STRK output amount to Wei:', e instanceof Error ? e.message : String(e));
+                    amountOutWei = undefined;
+                }
+            }
+
             return {
                 id: executionId,
                 status,
                 txId: swap.getBitcoinTxId?.() || undefined,
-                amountOut: status === 'CLAIMED' ? BigInt(swap.getOutput().toString()) : undefined,
+                amountOut: amountOutWei,
                 lightningPaymentHash: undefined // Simplified for Starknet ↔ Lightning focus
             };
 
@@ -770,6 +797,53 @@ export class RealAtomiqSwapClient implements AtomiqSwapClient {
             console.error('❌ Failed to get swap status:', error);
             throw new Error(`Failed to get swap status: ${error instanceof Error ? error.message : String(error)}`);
         }
+    }
+
+    /**
+     * Convert an SDK-provided STRK amount (which might be a number, bigint, or formatted string)
+     * into Wei (bigint). Handles strings like "0.971158651 STRK" or "0.971158651".
+     */
+    private parseStrkAmountToWei(value: any): bigint {
+        // Already bigint: assume Wei
+        if (typeof value === 'bigint') return value;
+
+        // Number: treat as STRK decimal amount; convert to Wei
+        if (typeof value === 'number') {
+            // Convert via string path to avoid FP issues
+            return this.decimalStrToWei(String(value));
+        }
+
+        // Try string-like
+        const s = value?.toString?.();
+        if (typeof s !== 'string' || s.length === 0) {
+            throw new SyntaxError('Unknown STRK amount format');
+        }
+
+        // Remove token symbol and any extraneous text
+        const cleaned = s.replace(/STRK/gi, '').replace(/sats/gi, '').trim();
+
+        // If it's an integer-only string, assume Wei
+        if (/^\d+$/.test(cleaned)) {
+            return BigInt(cleaned);
+        }
+
+        // Else treat as decimal STRK amount and convert to Wei
+        return this.decimalStrToWei(cleaned);
+    }
+
+    // Convert a decimal string in STRK to Wei (18 decimals)
+    private decimalStrToWei(s: string): bigint {
+        if (!/^\d*(?:\.\d+)?$/.test(s)) {
+            // Try to extract first numeric token
+            const m = s.match(/\d+(?:\.\d+)?/);
+            if (!m) throw new SyntaxError(`Cannot convert ${s} to a BigInt`);
+            s = m[0];
+        }
+        const [intPart, fracRaw = ''] = s.split('.');
+        const frac = (fracRaw + '0'.repeat(18)).slice(0, 18); // right-pad to 18
+        const intWei = intPart ? BigInt(intPart) * 1000000000000000000n : 0n;
+        const fracWei = frac ? BigInt(frac) : 0n;
+        return intWei + fracWei;
     }
 
     async refund(executionId: string, walletSigner?: any): Promise<{ txId: string }> {

@@ -4,7 +4,7 @@ import { RealCashuClient } from '@/integrations/cashu/client';
 import { EcashProof } from '@/domain';
 import { ENV } from '@/config/env';
 import { serverSideCashuMelt, getEncodedTokenFromStorage, calculateMaxInvoiceAmount } from '@/integrations/cashu/direct';
-import { type Proof } from '@cashu/cashu-ts';
+import { getSharedSwapAddress, transferStrkFromShared } from '@/integrations/starknet/sharedAccount';
 
 export async function stepSwapBack(
     cashuProofs: EcashProof[],
@@ -17,6 +17,7 @@ export async function stepSwapBack(
 
     const totalSats = cashuProofs.reduce((sum, p) => sum + Number(p.amount), 0);
     const singleDestination = destinations[0]; // Use only the first destination
+    const sharedDest = getSharedSwapAddress();
 
     console.log('🔄 SLPM SwapBack: SIMPLIFIED Parameters:', {
         proofsCount: cashuProofs.length,
@@ -38,7 +39,8 @@ export async function stepSwapBack(
         const { finalInvoice, finalSwapId, meltResult } = await redeemAllCashuToInvoice(
             cashuProofs,
             totalSats,
-            singleDestination,
+            // Route LN→STRK swap to shared account to avoid signer mismatch, fallback to final destination if not configured
+            sharedDest || singleDestination,
             atomiq,
             onEvent,
             mintQuoteId
@@ -63,8 +65,31 @@ export async function stepSwapBack(
                 await atomiq.claimLightningToStrkSwap(finalSwapId);
                 finalStatus = 'CLAIMED';
                 console.log('✅ SLPM SwapBack: STRK claimed to single destination');
+                console.log('✅ SLPM SwapBack: STRK claimed to swap destination');
+
+                // If we used the shared account as destination, forward to the final recipient
+                if (sharedDest && sharedDest.toLowerCase() !== singleDestination.toLowerCase()) {
+                    try {
+                        // Query the swap status to get the actual STRK amount out (Wei)
+                        const status = await atomiq.getStatus(finalSwapId);
+                        const amountWei = status.amountOut ?? 0n;
+                        console.log('🚚 SLPM SwapBack: Forwarding STRK from shared to final recipient...', {
+                            from: sharedDest,
+                            to: singleDestination,
+                            amountWei: amountWei.toString()
+                        });
+                        await transferStrkFromShared(singleDestination, amountWei);
+                        console.log('✅ SLPM SwapBack: Forward transfer submitted');
+                    } catch (fwdErr) {
+                        console.error('❌ SLPM SwapBack: Forward transfer failed:', fwdErr);
+                        finalStatus = 'PAYMENT_CONFIRMED_CLAIM_FAILED';
+                    }
+                }
             } catch (claimError) {
                 console.error('❌ SLPM SwapBack: Claim failed:', claimError);
+                if (claimError instanceof Error && /Invalid signer provided/i.test(claimError.message)) {
+                    console.error('🛠️ SLPM SwapBack: Signer invalid. Ensure SHARED_SWAP_ACCOUNT_PRIVATE_KEY and SHARED_SWAP_ACCOUNT_ADDRESS are set and correspond to a deployed Starknet account with funds for fees.');
+                }
                 finalStatus = 'PAYMENT_CONFIRMED_CLAIM_FAILED';
             }
         } else {
@@ -159,7 +184,7 @@ async function redeemAllCashuToInvoice(
             originalInvoiceAmount: totalAmount
         });
 
-        // ALWAYS get Atomiq quote for the maximum safe amount (prevents any size issues)
+        // DEFAULT FLOW: Create Atomiq invoice and melt ecash to it automatically
         console.log('🔄 SLPM SwapBack: Getting optimized Atomiq quote for max safe amount...');
         console.log(`   Using calculated safe amount: ${maxCalcResult.maxAmount} sats (original was ${totalAmount} sats)`);
 
@@ -175,6 +200,15 @@ async function redeemAllCashuToInvoice(
         const finalInvoice = optimizedSwap.invoice;
         const finalSwapId = optimizedSwap.id;
 
+        // Log full invoice for easy copy, and stash on window for devtools access
+        console.log('📋 SLPM SwapBack: Full Atomiq invoice (copy):', finalInvoice);
+        if (typeof window !== 'undefined') {
+            try {
+                (window as any)._slpmLastAtomiqInvoice = finalInvoice;
+                console.log('ℹ️ Access invoice via window._slpmLastAtomiqInvoice');
+            } catch {/* ignore */ }
+        }
+
         // SERVER-SIDE MELT: Receive token once and melt (with built-in retry capability)
         console.log('🔍 SLPM SwapBack: Running server-side melt with built-in retry...');
         onEvent({
@@ -184,6 +218,7 @@ async function redeemAllCashuToInvoice(
         });
 
         const serverMeltResult = await serverSideCashuMelt(encodedToken, finalInvoice, mintQuoteId);
+
 
         if (!serverMeltResult.success) {
             // Handle insufficient balance case - this means we need a smaller invoice
