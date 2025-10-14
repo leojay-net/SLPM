@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { WalletIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { WalletIcon, CheckCircleIcon, HomeIcon } from '@heroicons/react/24/outline';
+import Link from 'next/link';
 import WalletConnection from '../../components/WalletConnection';
 import TransactionStatus from '../../components/TransactionStatus';
 import Notification from '../../components/Notification';
@@ -233,6 +234,15 @@ export default function MixerPage() {
             <div className="relative z-10 container mx-auto px-4 py-8">
                 {/* Header */}
                 <div className="text-center mb-12">
+                    <div className="flex items-center justify-center gap-4 mb-6">
+                        <Link
+                            href="/"
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-sm"
+                        >
+                            <HomeIcon className="w-4 h-4" />
+                            <span>Home</span>
+                        </Link>
+                    </div>
                     <h1 className="text-4xl font-bold mb-4 text-white">Privacy Mixer</h1>
                     <p className="text-gray-400 text-lg">
                         Enhanced privacy through advanced cryptographic mixing

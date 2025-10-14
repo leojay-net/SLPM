@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ChevronRightIcon, ShieldCheckIcon, EyeSlashIcon, CurrencyDollarIcon, ClockIcon, ServerIcon, CpuChipIcon } from '@heroicons/react/24/outline';
 
 export default function Home() {
+    const router = useRouter();
     const [isLoaded, setIsLoaded] = useState(false);
     const [activeStep, setActiveStep] = useState(0);
 
@@ -49,8 +51,8 @@ export default function Home() {
                     <div className="hidden md:flex items-center space-x-8">
                         <a href="#features" className="text-gray-300 hover:text-white transition-colors">Features</a>
                         <a href="#privacy" className="text-gray-300 hover:text-white transition-colors">Privacy</a>
-                        <a href="#docs" className="text-gray-300 hover:text-white transition-colors">Docs</a>
-                        <button className="bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg font-medium transition-colors">
+                        <button onClick={() => router.push('/docs')} className="text-gray-300 hover:text-white transition-colors">Docs</button>
+                        <button onClick={() => router.push('/mixer')} className="bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg font-medium transition-colors">
                             Launch App
                         </button>
                     </div>
@@ -71,11 +73,17 @@ export default function Home() {
                             Break on-chain linkability with military-grade privacy routing through Bitcoin Lightning Network and Cashu e-cash protocols
                         </p>
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                            <button className="group bg-orange-500 hover:bg-orange-600 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-300 flex items-center space-x-2">
+                            <button
+                                onClick={() => router.push('/mixer')}
+                                className="group bg-orange-500 hover:bg-orange-600 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-300 flex items-center space-x-2"
+                            >
                                 <span>Start Mixing</span>
                                 <ChevronRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                             </button>
-                            <button className="border border-gray-600 hover:border-gray-400 px-8 py-4 rounded-lg font-semibold text-lg transition-colors">
+                            <button
+                                onClick={() => router.push('/docs')}
+                                className="border border-gray-600 hover:border-gray-400 px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+                            >
                                 View Documentation
                             </button>
                         </div>

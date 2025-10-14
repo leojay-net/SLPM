@@ -43,7 +43,17 @@ export type OrchestratorEventType =
     | 'mix:complete'
     | 'mix:partial'
     | 'mix:failed'
-    | 'mix:error';
+    | 'mix:error'
+    | 'issue:progress'
+    | 'issue:complete'
+    | 'issue:error'
+    | 'redeem:validating'
+    | 'redeem:creating_swap'
+    | 'redeem:melting'
+    | 'redeem:claiming'
+    | 'redeem:forwarding'
+    | 'redeem:complete'
+    | 'redeem:error';
 
 export interface OrchestratorEvent {
     type: OrchestratorEventType;

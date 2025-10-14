@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRightIcon, ShieldCheckIcon, EyeSlashIcon, CurrencyDollarIcon, ClockIcon, ServerIcon, CpuChipIcon } from '@heroicons/react/24/outline';
+import { ChevronRightIcon, ShieldCheckIcon, EyeSlashIcon, CurrencyDollarIcon, ClockIcon, ServerIcon, CpuChipIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 
 export default function Home() {
   const router = useRouter();
@@ -50,8 +50,7 @@ export default function Home() {
           </div>
           <div className="hidden md:flex items-center space-x-8">
             <a href="#features" className="text-gray-300 hover:text-white transition-colors">Features</a>
-            <a href="#privacy" className="text-gray-300 hover:text-white transition-colors">Privacy</a>
-            <a href="#docs" className="text-gray-300 hover:text-white transition-colors">Docs</a>
+            <button onClick={() => router.push('/docs')} className="text-gray-300 hover:text-white transition-colors">Docs</button>
             <button onClick={() => router.push('/mixer')} className="bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg font-medium transition-colors">
               Launch App
             </button>
@@ -72,12 +71,86 @@ export default function Home() {
             <p className="text-xl md:text-2xl text-gray-300 mb-8 max-w-4xl mx-auto leading-relaxed">
               Break on-chain linkability with military-grade privacy routing through Bitcoin Lightning Network and Cashu e-cash protocols
             </p>
+
+            {/* Mode Selection Cards */}
+            <div className="mb-8 max-w-5xl mx-auto">
+              <h3 className="text-2xl font-semibold text-center mb-6 text-gray-200">Choose Your Mixing Mode</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Full Mix Card */}
+                <div className="group bg-gray-900/80 border border-gray-700 rounded-xl p-6 hover:border-orange-500 transition-all duration-300 cursor-pointer" onClick={() => router.push('/mixer')}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center group-hover:bg-orange-500/30 transition-colors">
+                        <ArrowPathIcon className="w-6 h-6 text-orange-400" />
+                      </div>
+                      <h4 className="text-xl font-bold text-white">Full Mix</h4>
+                    </div>
+                    <span className="px-3 py-1 bg-green-500/20 text-green-400 text-xs font-semibold rounded-full">Automated</span>
+                  </div>
+                  <p className="text-gray-400 mb-4 leading-relaxed">
+                    Complete end-to-end automated privacy mixing. Deposit STRK and receive mixed STRK in your destination wallet automatically.
+                  </p>
+                  <ul className="space-y-2 text-sm text-gray-500 mb-4">
+                    <li className="flex items-center space-x-2">
+                      <div className="w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
+                      <span>Single-step process</span>
+                    </li>
+                    <li className="flex items-center space-x-2">
+                      <div className="w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
+                      <span>Automatic completion</span>
+                    </li>
+                    <li className="flex items-center space-x-2">
+                      <div className="w-1.5 h-1.5 bg-orange-500 rounded-full"></div>
+                      <span>~10 minutes total time</span>
+                    </li>
+                  </ul>
+                  <div className="flex items-center text-orange-500 font-medium group-hover:translate-x-1 transition-transform">
+                    <span>Launch Full Mix</span>
+                    <ChevronRightIcon className="w-5 h-5 ml-1" />
+                  </div>
+                </div>
+
+                {/* Split Mix Card */}
+                <div className="group bg-gray-900/80 border border-gray-700 rounded-xl p-6 hover:border-blue-500 transition-all duration-300 cursor-pointer" onClick={() => router.push('/mixer/split')}>
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
+                        <ShieldCheckIcon className="w-6 h-6 text-blue-400" />
+                      </div>
+                      <h4 className="text-xl font-bold text-white">Split Mix</h4>
+                    </div>
+                    <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-xs font-semibold rounded-full">Manual</span>
+                  </div>
+                  <p className="text-gray-400 mb-4 leading-relaxed">
+                    Issue an anonymous ecash token for storage or transfer. Redeem the token later at any time for mixed STRK.
+                  </p>
+                  <ul className="space-y-2 text-sm text-gray-500 mb-4">
+                    <li className="flex items-center space-x-2">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                      <span>Two-step process</span>
+                    </li>
+                    <li className="flex items-center space-x-2">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                      <span>Store or transfer token</span>
+                    </li>
+                    <li className="flex items-center space-x-2">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                      <span>Redeem when ready</span>
+                    </li>
+                  </ul>
+                  <div className="flex items-center text-blue-500 font-medium group-hover:translate-x-1 transition-transform">
+                    <span>Launch Split Mix</span>
+                    <ChevronRightIcon className="w-5 h-5 ml-1" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button onClick={() => router.push('/mixer')} className="group bg-orange-500 hover:bg-orange-600 px-8 py-4 rounded-lg font-semibold text-lg transition-all duration-300 flex items-center space-x-2">
-                <span>Start Mixing</span>
-                <ChevronRightIcon className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </button>
-              <button className="border border-gray-600 hover:border-gray-400 px-8 py-4 rounded-lg font-semibold text-lg transition-colors">
+              <button
+                onClick={() => router.push('/docs')}
+                className="border border-gray-600 hover:border-gray-400 px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+              >
                 View Documentation
               </button>
             </div>
