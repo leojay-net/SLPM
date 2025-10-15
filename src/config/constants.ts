@@ -5,7 +5,7 @@ export const SPLIT_MAX_PARTS = 8;
 export const SPLIT_MIN_DENOM = 1n; // smallest sat denomination for splitting
 export const VERSION = '0.0.1-mvp';
 
-// Privacy Mixer Contract Constants (deployed on Starknet Mainnet)
+
 export const PRIVACY_MIXER = {
     CONTRACT_ADDRESS: '0x05effdcfda86066c72c108e174c55a4f8d1249ba69f80e975d7fc814199a376b',
     CLASS_HASH: '0x00abc35fe33a082fad61df2a88160f16202d1a08cc338f1954063320063be4d5',
@@ -20,7 +20,4 @@ export const PRIVACY_MIXER = {
     }
 } as const;
 
-// Shared swap account (temporary central account for prototype phase)
-// WARNING: Centralizing withdrawals reduces privacy and introduces custodial risk.
-// Private key provided externally; do NOT commit secrets into repo in production.
 export const SHARED_SWAP_ACCOUNT_ADDRESS = '0x075a05264A7D0ebB864abFbE2bbFeE33D085EB77397b939bD17d55c2e69d87D3';
