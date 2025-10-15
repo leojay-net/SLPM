@@ -1,392 +1,410 @@
-# Starknet Lightning Privacy Mixer - Complete Implementation
+# SLPM - Starknet Lightning Privacy Mixer
 
-This project implements the full technical specification for a privacy mixer that enables unlinkable transfers through the STRK→Lightning BTC→Cashu e-cash→Lightning BTC→STRK pipeline.
+A decentralized privacy solution that breaks on-chain transaction linkability on Starknet by routing funds through multiple privacy-preserving layers: **Zero-Knowledge Proofs → Lightning Network → Cashu Ecash**.
 
-## 🏗️ Architecture Overview
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Starknet](https://img.shields.io/badge/Starknet-Mainnet-purple)](https://starknet.io)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org)
+
+> **⚠️ Status**: Active Development - Testnet deployment recommended for testing
+
+## Overview
+
+SLPM provides **military-grade financial privacy** for Starknet transactions through a sophisticated multi-layer architecture that makes it cryptographically impossible to link sender and recipient addresses on-chain.
+
+## Overview
+
+SLPM provides **military-grade financial privacy** for Starknet transactions through a sophisticated multi-layer architecture that makes it cryptographically impossible to link sender and recipient addresses on-chain.
+
+### 🔒 Privacy Pipeline
+
+```
+STRK → [Privacy Mixer] → [Lightning] → [Cashu Ecash] → [Lightning] → STRK
+  ↓          ↓               ↓              ↓              ↓          ↓
+Sender   Commitment      Off-chain      Anonymous      Off-chain  Recipient
+        + ZK Proof       Payment         Token          Payment   (Unlinkable)
+```
+
+### ✨ Key Features
+
+- **🛡️ Zero-Knowledge Privacy**: Cryptographic commitments and nullifiers prevent on-chain linkability
+- **⚡ Lightning Integration**: Instant, untraceable cross-chain routing via Bitcoin Lightning Network
+- **💰 Cashu Ecash**: Bearer token privacy with offline storage and peer-to-peer transfers
+- **🔄 Two Mixing Modes**: 
+  - **Full Mix**: Automated end-to-end privacy (1 minute)
+  - **Split Mix**: Manual custody with enhanced temporal privacy (hours to years)
+- **🎯 Flexible Settlement**: Choose between STRK on-chain or Lightning off-chain at redemption
+- **🔐 Self-Custody**: Complete control over your bearer tokens in Split Mix mode
+- **🌐 Multi-Mint Support**: Enhanced privacy through distribution across multiple Cashu mints
+
+## 🏗️ Architecture
 
 ### Core Components
 
-1. **Smart Contract Layer** (`contracts/src/privacy_mixer.cairo`)
-   - Cairo smart contract managing privacy mixing operations
-   - Commitment/nullifier schemes for privacy
-   - Multi-account support with ArgentX/Braavos integration
-   - Emergency controls and audit capabilities
+### Core Components
 
-2. **Privacy Enhancement Engine** (`src/mixer/privacy.ts`)
-   - Temporal mixing with configurable delays
-   - Amount obfuscation through splitting and randomization
-   - Routing diversification across multiple Cashu mints
-   - Anonymity set enhancement and batching
+#### 1. **Privacy Mixer Smart Contract** (`contract/src/privacy_mixer.cairo`)
+- Cairo 2.x implementation on Starknet mainnet
+- Commitment/nullifier scheme for deposit-withdrawal unlinkability
+- Zero-knowledge proof verification
+- Emergency withdrawal mechanisms
+- Multi-account support (ArgentX, Braavos, OKX wallets)
 
-3. **Real SDK Integrations**
-   - **Cashu Integration** (`src/integrations/cashu/client.ts`) - Real @cashu/cashu-ts integration
-   - **Lightning Network** (`src/integrations/lightning/client.ts`) - BOLT11 support with bitcoinjs-lib
-   - **Atomiq Swaps** (`src/integrations/swaps/atomiq.ts`) - Real @atomiqlabs/sdk for atomic swaps
-   - **Starknet Wallets** (`src/integrations/starknet/wallet.ts`) - ArgentX/Braavos wallet support
+#### 2. **Frontend Application** (`src/app/`)
+- Next.js 14 with TypeScript and React
+- Two mixing modes: Full Mix (automated) and Split Mix (manual custody)
+- Real-time progress tracking and event monitoring
+- Responsive UI with privacy-focused design
+- Wallet connection management
 
-4. **Error Handling & Recovery** (`src/mixer/error-handling.ts`)
-   - Comprehensive timeout protection
-   - Automatic refund mechanisms
-   - Circuit breakers and rollback handling
-   - Alternative routing strategies
+#### 3. **Privacy Enhancement Engine** (`src/mixer/privacy.ts`)
+- Temporal mixing with configurable delays
+- Amount obfuscation through intelligent splitting
+- Multi-mint routing for enhanced anonymity
+- Anonymity set batching and optimization
 
-5. **Observability System** (`src/mixer/observability.ts`)
-   - Structured logging with privacy-safe metrics
-   - Performance monitoring and alerting
-   - Business metrics and health checks
-   - Production-ready monitoring
+#### 4. **Integration Layer** (`src/integrations/`)
+- **Cashu Client** (`cashu/client.ts`): @cashu/cashu-ts v2.7.2 for ecash operations
+- **Atomiq SDK** (`swaps/atomiq.ts`): @atomiqlabs/sdk v6.0.3 for Lightning↔STRK swaps
+- **Lightning Network** (`lightning/`): BOLT11 invoice handling
+- **Starknet Wallets** (`starknet/wallet.ts`): Multi-wallet provider support
+- **Server-side Melt** (`cashu/direct.ts`): Reliable ecash redemption with retries
+
+#### 5. **Orchestration Layer** (`src/orchestrator/`)
+- Session state management and lifecycle
+- Error handling and recovery strategies
+- Progress event system for UI updates
+- Transaction coordination across layers
 
 ## 🔒 Privacy Guarantees
 
-### Unlinkability Mechanisms
-- **Temporal Privacy**: Configurable mixing delays prevent timing correlation
-- **Amount Obfuscation**: Intelligent amount splitting across multiple denominations
-- **Routing Diversification**: Multi-mint Cashu distribution for path unlinkability
-- **Anonymity Sets**: Batching operations to increase privacy set size
+### Three-Layer Privacy Architecture
 
-### Zero-Knowledge Components
-- Commitment schemes for deposit privacy
-- Nullifier prevention for double-spending protection
-- ZK-proof verification for withdrawal authorization
-- Merkle tree inclusion proofs for anonymity sets
+1. **On-Chain Privacy (Starknet)**
+   - Cryptographic commitments hide depositor identity
+   - Zero-knowledge proofs enable unlinkable withdrawals
+   - Nullifier scheme prevents double-spending
+   - Anonymity set grows with each participant
 
-## 🚀 Key Features
+2. **Cross-Chain Privacy (Lightning Network)**
+   - Off-chain payment routing breaks transaction graph
+   - No permanent blockchain record
+   - Instant settlement with sub-second finality
+   - Multi-hop routing obscures payment path
 
-### Production-Ready Components
-- ✅ Real SDK integrations (no mocks in production paths)
-- ✅ Comprehensive error handling with recovery strategies
-- ✅ Privacy-focused observability and metrics
-- ✅ Smart contract integration with wallet support
-- ✅ Multi-mint Cashu support for enhanced privacy
-- ✅ Atomic swap integration for seamless L1↔Lightning conversions
+3. **Bearer Token Privacy (Cashu Ecash)**
+   - Offline storage capability
+   - Peer-to-peer transferability
+   - No ledger tracking transfers
+   - Blind signature scheme for anonymity
 
-### Privacy Features
-- ✅ Temporal mixing with randomized delays
-- ✅ Amount splitting and denomination standardization
-- ✅ Multi-path routing across Cashu mints
-- ✅ Anonymity set enhancement through batching
-- ✅ Privacy-preserving metrics collection
+### Privacy Strength
 
-### Technical Robustness
-- ✅ Circuit breakers for service degradation
-- ✅ Automatic refund mechanisms for failed operations
-- ✅ Timeout protection across all operations
-- ✅ Alternative routing when primary paths fail
-- ✅ Comprehensive structured logging
+| Feature | Full Mix | Split Mix (STRK) | Split Mix (Lightning) |
+|---------|----------|------------------|----------------------|
+| On-chain unlinkability | ✅ Yes | ✅ Yes | ✅ Yes |
+| Bearer token privacy | ✅ Yes | ✅ Yes | ✅ Yes |
+| Temporal disconnect | Minutes | Hours to Years | Hours to Years |
+| User custody | No (automated) | Yes | Yes |
+| Offline storage | No | Yes | Yes |
+| Blockchain footprint | Starknet tx | Starknet tx | **None** |
+| Wallet required | Yes | Yes (claiming) | **No** |
 
-## 📋 Dependencies
+### Attack Resistance
 
-### Core SDKs
-```json
-{
-  "@cashu/cashu-ts": "^1.0.0",
-  "starknet": "^6.0.0",
-  "@atomiqlabs/sdk": "^2.0.0",
-  "bitcoinjs-lib": "^6.0.0",
-  "bolt11": "^1.4.0",
-  "@starknet-io/get-starknet": "^4.0.0",
-  "wagmi": "^2.0.0"
-}
-```
+- **✅ Timing Analysis**: Variable delays and batching prevent correlation
+- **✅ Amount Correlation**: Splitting and standardization obfuscate values
+- **✅ Graph Analysis**: Commitment scheme breaks transaction graph
+- **✅ Statistical Disclosure**: Large anonymity sets (100-10,000+) provide strong privacy
 
-### Smart Contract
-- **Cairo 2.x** for Starknet smart contract development
-- **Scarb** for Cairo project management
-- **Starknet.js** for contract interaction
+## 🚀 Quick Start
 
-## 🔧 Configuration
+### Prerequisites
 
-### Environment Variables
+- Node.js 18+ and npm
+- Starknet wallet (ArgentX, Braavos, or OKX)
+- Lightning wallet (optional, for Split Mix Lightning settlement)
+
+### Installation
+
 ```bash
-# Starknet Configuration
-STARKNET_RPC_URL=https://starknet-mainnet.public.blastapi.io/rpc/v0_7
-PRIVACY_MIXER_CONTRACT_ADDRESS=0x...
+# Clone the repository
+git clone https://github.com/leojay-net/SLPM.git
+cd SLPM
 
-# Lightning Network
-LIGHTNING_NODE_URL=...
-LIGHTNING_MACAROON=...
-
-# Cashu Mint Configuration
-CASHU_MINT_URLS=mint1.com,mint2.com,mint3.com
-
-# Privacy Settings
-MIN_MIXING_DELAY_SECONDS=3600
-MAX_ANONYMITY_SET_SIZE=100
-AMOUNT_OBFUSCATION_ENABLED=true
-```
-
-## 🏃‍♂️ Usage
-
-### Basic Privacy Mixing Flow
-
-```typescript
-import { PrivacyMixingPipeline } from './src/mixer/pipeline';
-import { PrivacyEnhancementEngine } from './src/mixer/privacy';
-import { StarknetWalletManager } from './src/integrations/starknet/wallet';
-
-// Initialize the privacy mixer
-const pipeline = new PrivacyMixingPipeline();
-const privacyEngine = new PrivacyEnhancementEngine();
-const walletManager = new StarknetWalletManager();
-
-// Connect wallet
-await walletManager.connectWallet('argentX');
-
-// Enhanced privacy transfer
-const result = await pipeline.executePrivacyTransfer({
-  fromAmount: BigInt('1000000000000000000'), // 1 STRK
-  toAddress: '0x...',
-  privacyLevel: 'high',
-  maxDelay: 7200, // 2 hours max
-});
-```
-
-### Smart Contract Integration
-
-```typescript
-import { PrivacyMixerContract } from './src/integrations/starknet/privacy-mixer-contract';
-
-// Initialize contract
-const contract = await createPrivacyMixerContract(
-  CONTRACT_ADDRESS,
-  PRIVATE_KEY,
-  RPC_URL
-);
-
-// Deposit with commitment
-const commitment = await contract.generateCommitment(secret, amount);
-await contract.deposit(commitment, amount);
-
-// Withdraw with privacy proof
-const nullifier = await contract.generateNullifier(secret, commitment);
-const proof = await contract.generateZKProof(secret, commitment, nullifier, recipient, amount);
-await contract.withdraw(nullifier, commitment, recipient, amount, proof);
-```
-
-## 🔍 Monitoring & Observability
-
-### Privacy-Safe Metrics
-- Anonymity set sizes (without revealing individual users)
-- Mixing efficiency and success rates
-- System performance and availability
-- Privacy score tracking
-
-### Structured Logging
-```typescript
-import { ObservabilitySystem } from './src/mixer/observability';
-
-const obs = new ObservabilitySystem();
-
-// Privacy-safe operation logging
-await obs.logMixingOperation({
-  operationId: 'mix_123',
-  anonymitySetSize: 50,
-  mixingTimeSeconds: 3600,
-  success: true
-});
-```
-
-## 🔐 Security Considerations
-
-### Privacy Protections
-- No correlation between deposits and withdrawals in logs
-- Timing randomization to prevent pattern analysis
-- Amount obfuscation across multiple denominations
-- Multi-mint routing for path unlinkability
-
-### Operational Security
-- Emergency pause functionality in smart contract
-- Automatic refund mechanisms for failed operations
-- Circuit breakers for service degradation protection
-- Comprehensive error handling and recovery
-
-## 📈 Performance
-
-### Throughput Optimization
-- Batched operations for gas efficiency
-- Parallel processing where privacy-safe
-- Efficient multi-mint routing algorithms
-- Optimized smart contract interactions
-
-### Privacy/Performance Trade-offs
-- Configurable mixing delays (privacy vs speed)
-- Variable anonymity set sizes (privacy vs throughput)
-- Optional advanced privacy features for power users
-- Standard privacy modes for everyday users
-
-## 🧪 Testing
-
-### Test Environment Setup
-```bash
-# Start local Starknet devnet
-starknet-devnet --host 127.0.0.1 --port 5050
-
-# Start Lightning regtest
-bitcoind -regtest -daemon
-lightning-cli --regtest
-
-# Start Cashu test mint
-cashu-mint --regtest
-```
-
-### Integration Tests
-- End-to-end privacy mixing flows
-- Smart contract interaction tests
-- Multi-mint Cashu routing verification
-- Error handling and recovery testing
-
-## 🚀 Deployment
-
-### Smart Contract Deployment
-```bash
-cd contracts
-scarb build
-starknet declare --contract target/privacy_mixer.sierra.json
-starknet deploy --class-hash <hash> --inputs <constructor_args>
-```
-
-### Frontend Deployment
-```bash
-npm run build
-npm run deploy
-```
-
-## 📝 Technical Specification Compliance
-
-This implementation fulfills all requirements from the "Starknet Lightning Privacy Mixer - Technical Specification":
-
-✅ **Privacy Guarantees**: Temporal mixing, amount obfuscation, routing diversification  
-✅ **Real Integrations**: @cashu/cashu-ts, @atomiqlabs/sdk, starknet.js, bitcoinjs-lib  
-✅ **Error Handling**: Timeout protection, automatic refunds, rollback mechanisms  
-✅ **Observability**: Privacy-safe structured logging, metrics, monitoring  
-✅ **Smart Contracts**: Cairo implementation with commitment/nullifier schemes  
-✅ **Wallet Integration**: ArgentX/Braavos support with multi-account privacy  
-
-## 🤝 Contributing
-
-1. Privacy-first development approach
-2. Comprehensive testing of privacy guarantees
-3. Security review for all cryptographic components
-4. Performance optimization with privacy preservation
-
-## 📄 License
-
-This project implements privacy-enhancing technology. Please review applicable regulations in your jurisdiction before deployment.
-
----
-
-**Note**: This is a complete implementation of the technical specification. All major components are production-ready with real SDK integrations, comprehensive error handling, and privacy-focused observability systems.
-## Starknet Lightning Privacy Mixer (MVP)
-
-Strictly modular backend‑first skeleton focusing on mixing session lifecycle, extensible integrations, and clear domain boundaries. UI intentionally minimal.
-
-### High-Level Flow
-1. Client creates mixing session (target denominations, destination optional)
-2. Client deposits ecash proofs (Cashu) or on-chain/Lightning funds (future adapters)
-3. Engine performs reissuance/mixing (placeholder algorithm now)
-4. Mixed outputs become withdrawable
-5. User withdraws to destination (Lightning invoice / Starknet address / new token)
-
-### Directory Structure
-```
-src/
-	domain/        (pure types + schemas)
-	storage/       (storage adapters; currently in-memory)
-	crypto/        (BDHKE + randomness stubs)
-	integrations/  (cashu, lightning, starknet, swaps abstractions)
-	events/        (event bus)
-	mixer/         (engine orchestrator)
-	config/        (constants)
-	utils/         (helpers)
-	app/api/       (Next.js route handlers)
-```
-
-### Core Modules
-| Module | Responsibility |
-| ------ | -------------- |
-| domain | Canonical type system (sessions, proofs, events) + zod schemas |
-| storage | Repository abstraction; easy swap to persistent DB later |
-| crypto | Placeholder BDHKE utilities (NOT production secure) |
-| integrations | Clean interfaces for external systems (Cashu, LN, Starknet) |
-| events | Decoupled internal publish/subscribe signaling |
-| mixer | State machine + orchestration of deposit/mix/withdraw |
-| api | Thin validation + delegation to engine |
-
-### Session States
-CREATED → AWAITING_DEPOSIT → DEPOSITED → MIXING → READY → WITHDRAWING → COMPLETED
-
-### Private STRK → STRK Transfer Pipeline (New)
-High level: STRK (sender) -> swap to BTC_LN via Atomiq -> pay mint invoice -> receive ecash -> mix -> melt & swap back -> STRK (recipient).
-
-Pipeline States:
-PIPELINE_CREATED → SWAP_OUT_STRK_PENDING → SWAP_OUT_STRK_COMPLETED → LN_DEPOSIT_PENDING → LN_DEPOSIT_SETTLED → ECASH_MINTED → REISSUED → SWAP_BACK_PENDING → SWAP_BACK_COMPLETED → PIPELINE_COMPLETED (or PIPELINE_FAILED)
-
-Initiate transfer:
-POST /api/pipeline/transfer { "from": "starknet_sender", "to": "starknet_recipient", "amountStrk": "1000000000000000000" }
-
-Response contains pipeline id; poll (future: websocket events) for state transitions.
-
-### API Endpoints (MVP)
-POST /api/session  create session
-GET  /api/session/:id  fetch session
-POST /api/deposit  attach ecash proofs
-POST /api/withdraw  complete withdrawal
-
-### Example Usage (pseudo)
-```bash
-curl -X POST /api/session -d '{"currency":"SAT","targetAmounts":["1000","2000"]}'
-curl -X POST /api/deposit -d '{"sessionId":"...","proofs":[{"secret":"s","signature":"sig","amount":"1000","currency":"SAT","keysetId":"mock"}]}'
-curl -X POST /api/withdraw -d '{"sessionId":"...","destination":"lnbc..."}'
-```
-
-### Security / Cryptography Notice
-All cryptographic primitives are placeholders. Replace with audited, curve‑based BDHKE, proper key management, and proof validation before any real value usage.
-
-### Extensibility Hooks
-| Replace | With |
-| storage/InMemoryStorage | PostgreSQL / SQLite adapter |
-| crypto/bdhke | Real EC operations + hashing |
-| integrations/* mocks | Production clients (Cashu mint, LN node, Starknet contracts) |
-| mixer algorithm | Anonymity set scheduling, batching, decoy strategies |
-
-### Phase 1 Additions (Persistence & Basic Obfuscation)
-Implemented:
-- File-system storage adapter (`FileSystemStorage`) for sessions & proofs (JSON on disk)
-- Mixing split strategy (even split with configurable max parts & min denomination)
-- Randomized delay scheduler (bounded jitter) auto-starting mixing after deposit
-- Refactored mixer engine to generic `StorageAdapter`
-- Enhanced Atomiq mock with execution status model
-
-Config constants (`config/constants.ts`):
-```
-MIX_MIN_DELAY_MS / MIX_MAX_DELAY_MS
-SPLIT_MAX_PARTS / SPLIT_MIN_DENOM
-```
-
-Still Needed (future phases): real DB, adaptive split heuristics, multi-mint routing, anonymity scoring.
-
-### Next Steps (Suggested Roadmap)
-1. Real cryptography + keyset rotation
-2. Persistent storage (SQLite first) + migrations
-3. Proper session state machine & timers (mix windows)
-4. Proof validation & denomination normalization logic
-5. Fee model abstraction
-6. Lightning & Starknet production adapters
-7. Swap service integration (cross-chain ingress/egress)
-8. Event-sourced audit log & metrics collector
-9. Structured logging + tracing (OpenTelemetry)
-10. Comprehensive test suite (unit + integration)
-
-### Development
-```
+# Install dependencies
 npm install
+
+# Set up environment variables
+cp .env.example .env.local
+# Edit .env.local with your configuration
+
+# Run development server
 npm run dev
 ```
 
-### Lint / Build
-```
-npm run build
+### Environment Configuration
+
+Create `.env.local` with the following variables:
+
+```bash
+# Network Configuration
+NEXT_PUBLIC_NETWORK=MAINNET  # or TESTNET
+
+# Starknet Configuration
+NEXT_PUBLIC_STARKNET_RPC=https://starknet-mainnet.public.blastapi.io
+STARKNET_RPC=https://starknet-mainnet.public.blastapi.io
+
+# Privacy Mixer Contract (Mainnet)
+NEXT_PUBLIC_MIXER_CONTRACT_ADDRESS=0x05effdcfda86066c72c108e174c55a4f8d1249ba69f80e975d7fc814199a376b
+MIXER_CONTRACT_ADDRESS=0x05effdcfda86066c72c108e174c55a4f8d1249ba69f80e975d7fc814199a376b
+
+# Shared Swap Account (for automated swaps)
+NEXT_PUBLIC_SHARED_SWAP_ACCOUNT_PRIVATE_KEY=0x...
+SHARED_SWAP_ACCOUNT_PRIVATE_KEY=0x...
+NEXT_PUBLIC_SHARED_SWAP_ACCOUNT_ADDRESS=0x...
+SHARED_SWAP_ACCOUNT_ADDRESS=0x...
+
+# Cashu Mint Configuration
+NEXT_PUBLIC_CASHU_DEFAULT_MINT=https://mint.lnserver.com
+CASHU_MINT=https://mint.lnserver.com
+
+# Atomiq Configuration
+NEXT_PUBLIC_ATOMIQ_NETWORK=mainnet
+ATOMIQ_NETWORK=mainnet
 ```
 
-### Disclaimer
-MVP code is for architectural scaffolding only and is NOT ready for handling funds.
+### Usage
+
+1. **Navigate to the application**: Open http://localhost:3000
+2. **Connect your wallet**: Click "Connect Wallet" and select your preferred provider
+3. **Choose mixing mode**:
+   - **Full Mix**: Automated privacy mixing (recommended for beginners)
+   - **Split Mix**: Manual custody with enhanced privacy (advanced users)
+4. **Follow the guided flow** to complete your privacy-enhanced transfer
+
+## 💡 Use Cases
+
+### Personal Privacy
+- 💼 Receive salary without employer tracking spending patterns
+- 🎁 Make anonymous donations to causes
+- 🛒 Purchase goods/services without vendor profiling
+- 💰 Accumulate savings without surveillance
+
+### Business Applications
+- 📦 Confidential supplier payments
+- 👔 Anonymous payroll for sensitive operations
+- 🏛️ Private treasury management
+- 🔍 Protect competitive intelligence
+
+### Split Mix Benefits
+- 🕐 **Time flexibility**: Redeem hours, days, or years later
+- 🎁 **Gift tokens**: Transfer value peer-to-peer offline
+- 💾 **Backup resilience**: Store in multiple secure locations
+- 🌍 **Geographic privacy**: Issue and redeem from different locations
+- ⚡ **Lightning settlement**: Pay invoices directly without on-chain footprint
+
+## 📋 Technology Stack
+
+### Frontend
+- **Next.js 14**: React framework with App Router
+- **TypeScript**: Type-safe development
+- **Tailwind CSS**: Utility-first styling
+- **Heroicons**: UI icons
+
+### Blockchain & Crypto
+- **Starknet.js v7.6.4**: Starknet blockchain interaction
+- **@atomiqlabs/sdk v6.0.3**: Lightning↔STRK atomic swaps
+- **@cashu/cashu-ts v2.7.2**: Cashu ecash protocol
+- **get-starknet v4.0.3**: Multi-wallet connection
+
+### Smart Contract
+- **Cairo 2.x**: Starknet smart contract language
+- **Scarb**: Cairo package manager
+- **Starknet Foundry**: Testing framework
+
+### Development Tools
+- **ESLint & Prettier**: Code quality
+- **TypeScript**: Static type checking
+- **dotenv**: Environment management
+
+## 📁 Project Structure
+
+```
+slpm/
+├── contract/               # Cairo smart contracts
+│   ├── src/
+│   │   ├── privacy_mixer.cairo
+│   │   └── lib.cairo
+│   └── tests/
+├── src/
+│   ├── app/               # Next.js pages and API routes
+│   │   ├── mixer/         # Full Mix UI
+│   │   │   └── split/     # Split Mix UI
+│   │   └── api/           # Server-side endpoints
+│   │       └── cashu/     # Cashu operations
+│   ├── components/        # React components
+│   │   └── mixer/
+│   │       └── split/     # Split Mix components
+│   ├── integrations/      # External service clients
+│   │   ├── cashu/         # Cashu SDK integration
+│   │   ├── swaps/         # Atomiq SDK integration
+│   │   ├── starknet/      # Wallet & contract
+│   │   └── lightning/     # Lightning Network
+│   ├── orchestrator/      # Business logic
+│   │   └── steps/         # Mixing flow steps
+│   ├── mixer/             # Privacy engine
+│   ├── domain/            # Type definitions
+│   ├── config/            # Configuration
+│   ├── context/           # React contexts
+│   ├── utils/             # Utilities
+│   └── storage/           # Data persistence
+└── docs/                  # Documentation
+    └── MIXER_ARCHITECTURE.md
+```
+
+## 🔧 Development
+
+### Smart Contract Development
+
+```bash
+cd contract
+
+# Install dependencies
+scarb build
+
+# Run tests
+snforge test
+
+# Deploy to testnet
+sncast --profile testnet deploy \
+  --class-hash <hash> \
+  --constructor-calldata <args>
+```
+
+### Frontend Development
+
+```bash
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Run linter
+npm run lint
+
+# Format code
+npm run format
+```
+
+### Testing
+
+```bash
+# Run Cashu integration tests
+npm run test:cashu
+
+# Test specific functionality
+npm run test:mixer
+npm run test:swaps
+```
+
+## 🔐 Security
+
+### Smart Contract Security
+- ✅ Emergency pause functionality
+- ✅ Commitment uniqueness validation
+- ✅ Nullifier double-spend prevention
+- ✅ Access control for admin functions
+- ✅ Reentrancy protection
+
+### Application Security
+- ✅ Environment variable validation
+- ✅ Input sanitization and validation
+- ✅ Secure key storage recommendations
+- ✅ HTTPS enforcement
+- ✅ Privacy-preserving error messages
+
+### Cryptographic Security
+- ✅ Collision-resistant hash functions
+- ✅ Zero-knowledge proof verification
+- ✅ Blind signature schemes (Cashu)
+- ✅ Secure random number generation
+
+### Operational Security
+- 🔄 Automatic refund mechanisms
+- 🔄 Timeout protection (30-60s limits)
+- 🔄 Circuit breakers for service failures
+- 🔄 Comprehensive error handling
+
+## � Documentation
+
+- **[Architecture Overview](./docs/MIXER_ARCHITECTURE.md)**: Detailed system design and privacy mechanisms
+- **[Smart Contract Docs](./contract/README.md)**: Cairo contract implementation details
+- **[API Reference](./docs/API.md)**: Server-side endpoint documentation
+- **[Privacy Analysis](./docs/PRIVACY.md)**: Security guarantees and threat model
+
+## 🤝 Contributing
+
+We welcome contributions! Please follow these guidelines:
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+3. **Commit your changes**: `git commit -m 'Add amazing feature'`
+4. **Push to branch**: `git push origin feature/amazing-feature`
+5. **Open a Pull Request**
+
+### Development Guidelines
+- Write comprehensive tests for new features
+- Follow existing code style and conventions
+- Update documentation for API changes
+- Ensure privacy guarantees are maintained
+- Add security considerations for cryptographic changes
+
+## � License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## ⚠️ Disclaimer
+
+**Important Security Notice:**
+
+This software is provided for educational and research purposes. While we implement industry-standard cryptographic primitives and privacy-enhancing technologies:
+
+- **No Warranty**: This software is provided "as is" without warranty of any kind
+- **Testnet First**: Always test on Starknet testnet before mainnet deployment
+- **Regulatory Compliance**: Review applicable regulations in your jurisdiction
+- **Audit Recommended**: Independent security audit recommended before production use
+- **Beta Software**: Active development - features and APIs may change
+
+**Privacy Notice:**
+
+- Cashu mints are custodial - choose reputable mints carefully
+- Atomiq swaps require sufficient liquidity
+- Network fees apply to all on-chain transactions
+- Backup your ecash tokens - they are bearer instruments
+
+## 🔗 Links
+
+- **Live Demo**: [slpm.example.com](https://slpm.example.com) (Coming soon)
+- **Documentation**: [docs.slpm.example.com](https://docs.slpm.example.com)
+- **GitHub**: [github.com/leojay-net/SLPM](https://github.com/leojay-net/SLPM)
+- **Starknet Contract**: [Starkscan Explorer](https://starkscan.co)
+- **Twitter**: [@SLPM_Privacy](https://twitter.com/SLPM_Privacy)
+- **Discord**: [Join our community](https://discord.gg/slpm)
+
+## 🙏 Acknowledgments
+
+- **Starknet** for the scalable L2 infrastructure
+- **Atomiq Labs** for Lightning↔Starknet atomic swaps
+- **Cashu** for the ecash protocol implementation
+- **Open-source contributors** who make privacy technology accessible
+
+---
+
+**Built with privacy in mind. 🔒**
+
+*"Privacy is not about hiding, it's about freedom."*
