@@ -170,7 +170,6 @@ export function IssueTokenTab({ isConnected, onConnectWallet, showNotification }
                     <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
                         <p className="text-sm text-blue-300">
                             This creates a Cashu ecash token that you can store securely and redeem later for STRK.
-                            The flow: Deposit → Withdraw → Swap to Lightning → Mint ecash token.
                         </p>
                     </div>
                 </>

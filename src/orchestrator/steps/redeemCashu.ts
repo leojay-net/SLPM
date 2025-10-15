@@ -103,3 +103,56 @@ export async function redeemCashuToken(
         throw error;
     }
 }
+
+/**
+ * Redeem Cashu Token Directly to Lightning Invoice
+ * Melts ecash token to pay a Lightning invoice (no Atomiq swap, no STRK)
+ */
+export async function redeemToLightning(
+    encodedToken: string,
+    lightningInvoice: string,
+    onEvent: (event: OrchestratorEvent & { changeToken?: string }) => void
+): Promise<void> {
+    try {
+        onEvent({ type: 'redeem:validating', message: 'Validating ecash token and invoice' });
+
+        console.log('🔄 Direct Lightning redemption starting');
+        console.log('Invoice:', lightningInvoice.slice(0, 50) + '...');
+
+        onEvent({ type: 'redeem:melting', message: 'Melting ecash to Lightning payment' });
+
+        // Melt ecash directly to pay the provided Lightning invoice
+        const meltResult = await serverSideCashuMelt(encodedToken, lightningInvoice);
+
+        if (!meltResult.success) {
+            throw new Error(meltResult.error);
+        }
+
+        console.log('✅ Lightning invoice paid successfully');
+
+        // Handle change if any
+        let changeTokenStr: string | undefined;
+        if (meltResult.result.change && meltResult.result.change.length > 0) {
+            const { getEncodedTokenV4 } = await import('@cashu/cashu-ts');
+            changeTokenStr = getEncodedTokenV4({
+                mint: meltResult.result.mintUrl,
+                proofs: meltResult.result.change
+            });
+            console.log('💰 Change token available:', meltResult.result.changeAmount, 'sats');
+        }
+
+        onEvent({
+            type: 'redeem:complete',
+            message: 'Lightning invoice paid successfully',
+            changeToken: changeTokenStr
+        });
+
+    } catch (error) {
+        console.error('❌ Lightning redemption error:', error);
+        onEvent({
+            type: 'redeem:error',
+            message: error instanceof Error ? error.message : 'Payment failed'
+        });
+        throw error;
+    }
+}

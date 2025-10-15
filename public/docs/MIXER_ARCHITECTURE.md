@@ -197,15 +197,30 @@ Two-phase flow with user custody of bearer ecash tokens:
 
 **Redeem Token Phase:**
 
+The user can choose between two settlement options:
+
+**Option 1: Settle to STRK (via Atomiq)**
+
 1. User provides stored ecash token + recipient Starknet address.
 2. System validates and decodes token to determine available balance.
-3. System calculates safe invoice amount (accounting for mint fees).
+3. System calculates safe invoice amount (accounting for mint fees using formula: `max_amount = balance - max(2, 0.01×amount) - 1`).
 4. System creates Atomiq LN→STRK swap, generating Lightning invoice.
 5. System melts Cashu token to pay Lightning invoice (server-side with retries).
 6. System waits for Lightning payment to settle Atomiq swap.
 7. System claims STRK from Atomiq on Starknet.
 8. If using shared signer, system forwards STRK to final recipient on-chain.
 9. Success: STRK delivered to recipient; any change returned as new token.
+
+**Option 2: Settle to Lightning Invoice (Direct Payment)**
+
+1. User provides stored ecash token + Lightning invoice to pay.
+2. System validates and decodes token to determine available balance.
+3. System displays calculated maximum invoice amount using fee formula: `max_amount = balance - max(2, 0.01×amount) - 1`.
+4. User creates Lightning invoice with recommended amount.
+5. System melts Cashu token directly to pay the Lightning invoice (server-side).
+6. Success: Lightning invoice paid; any change returned as new token.
+
+*Note: Option 2 bypasses Atomiq entirely, providing a direct Cashu→Lightning redemption path. This is useful for paying Lightning invoices directly without converting to STRK, or for users who want to send ecash value to Lightning recipients.*
 
 ## Detailed Sequence
 
@@ -317,6 +332,8 @@ sequenceDiagram
 
 #### Redeem Token Phase
 
+**Option 1: Redeem to STRK (via Atomiq)**
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -329,6 +346,7 @@ sequenceDiagram
     participant D as Destination (Recipient)
 
     U->>U: Enter ecash token + recipient address
+    U->>U: Select "Settle to STRK"
     U->>M: Validate and receive token
     M-->>U: return proofs, available balance
 
@@ -354,7 +372,41 @@ sequenceDiagram
         note over D: STRK delivered directly
     end
 
-    note over U,D: Redeem complete
+    note over U,D: Redeem complete - STRK delivered
+```
+
+**Option 2: Redeem to Lightning Invoice (Direct Payment)**
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant U as User (Browser)
+    participant M as Cashu Mint
+    participant S as Server API
+    participant L as Lightning Network
+    participant R as Invoice Recipient
+
+    U->>U: Enter ecash token
+    U->>U: Select "Settle to Lightning"
+    U->>M: Validate token (calculate max amount)
+    M-->>U: available balance
+
+    Note over U: System calculates max invoice amount
+    Note over U: Formula: balance - max(2, 0.01×amount) - 1
+    U->>U: Display recommended amount (e.g., 980 sats)
+
+    U->>U: User creates/pastes Lightning invoice
+    Note over U: Invoice must be ≤ recommended amount
+
+    U->>S: melt ecash token to pay invoice
+    S->>M: meltProofs(invoice, proofs)
+    M->>L: Pay Lightning invoice
+    L->>R: Payment delivered to recipient
+    L-->>M: Payment confirmation
+    M-->>S: return success + change proofs (if any)
+    S-->>U: return change token (if any)
+
+    note over U,R: Payment complete - Invoice paid
 ```
 
 ## Component Responsibilities and Contracts
@@ -465,19 +517,23 @@ All Full Mix privacy properties, plus:
 - Geographic privacy: Issue and Redeem can occur from different locations, IP addresses, or network contexts.
 - Selective disclosure: User controls when and to whom value is revealed.
 - Backup resilience: Token can be stored in multiple locations; no single point of failure.
+- Settlement flexibility: Choose between STRK (on-chain) or Lightning (off-chain) settlement at redemption time.
 
 ### Privacy Comparison
 
-| Property | Full Mix | Split Mix |
-|----------|----------|-----------|
-| On-chain unlinkability | Yes | Yes |
-| Bearer token privacy | Yes | Yes |
-| Temporal disconnect | Minutes | Hours to Years |
-| User custody | No (automated) | Yes (user-controlled) |
-| Offline storage | No | Yes |
-| Peer-to-peer transfer | No | Yes |
-| Geographic flexibility | Limited | Complete |
-| Recovery options | Server-dependent | User-controlled |
+| Property | Full Mix | Split Mix (STRK) | Split Mix (Lightning) |
+|----------|----------|------------------|----------------------|
+| On-chain unlinkability | Yes | Yes | Yes |
+| Bearer token privacy | Yes | Yes | Yes |
+| Temporal disconnect | Minutes | Hours to Years | Hours to Years |
+| User custody | No (automated) | Yes (user-controlled) | Yes (user-controlled) |
+| Offline storage | No | Yes | Yes |
+| Peer-to-peer transfer | No | Yes | Yes |
+| Geographic flexibility | Limited | Complete | Complete |
+| Recovery options | Server-dependent | User-controlled | User-controlled |
+| Settlement destination | STRK only | STRK on-chain | Lightning off-chain |
+| Requires wallet connection | Yes | Yes (for claiming) | No |
+| Blockchain footprint | Starknet tx | Starknet tx | None |
 
 ## Privacy Mixer Contract: Breaking On-Chain Linkability
 
@@ -579,15 +635,17 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    subgraph Deposit["DEPOSIT (Address A)"]
+    subgraph Deposit[" "]
+        direction TB
         A1[User generates secret]
-        A2[Compute commitment = H(secret, amount)]
+        A2["Compute commitment = H(secret, amount)"]
         A3[Send STRK + commitment to mixer]
         A4[Mixer stores commitment]
         A1 --> A2 --> A3 --> A4
     end
 
-    subgraph Pool["MIXER CONTRACT POOL"]
+    subgraph Pool[" "]
+        direction TB
         P1[Commitment Set]
         P2[STRK Balance]
         P3[Nullifier Set]
@@ -595,8 +653,9 @@ flowchart TB
         P3 -.->|Nullifier checked| P2
     end
 
-    subgraph Withdraw["WITHDRAW (Address B)"]
-        W1[Compute nullifier = H(secret, 'nullifier')]
+    subgraph Withdraw[" "]
+        direction TB
+        W1["Compute nullifier = H(secret, 'nullifier')"]
         W2[Generate ZK proof]
         W3[Submit: nullifier + proof + recipient]
         W4[Mixer verifies proof]
@@ -605,12 +664,16 @@ flowchart TB
         W1 --> W2 --> W3 --> W4 --> W5 --> W6
     end
 
-    A4 -.->|Time delay| Pool
-    Pool -.->|Multiple deposits| W1
+    A4 -.->|Time delay| P1
+    P2 -.->|Multiple deposits| W1
 
-    style Pool fill:#1f2937,stroke:#f97316,stroke-width:3px
-    style Deposit fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
-    style Withdraw fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
+    classDef depositStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
+    classDef poolStyle fill:#1f2937,stroke:#f97316,stroke-width:3px
+    classDef withdrawStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px
+    
+    class A1,A2,A3,A4 depositStyle
+    class P1,P2,P3 poolStyle
+    class W1,W2,W3,W4,W5,W6 withdrawStyle
 ```
 
 ### Comparison: With vs Without Mixer Contract
@@ -772,10 +835,15 @@ The Privacy Mixer Contract provides the foundational on-chain unlinkability laye
 - Test redemption flow with a small token first.
 
 **For Redeem Token:**
-- Validate recipient address before redemption.
+- Validate recipient address (STRK) or invoice (Lightning) before redemption.
+- For Lightning settlement: ensure invoice amount ≤ calculated maximum amount.
 - Check mint availability before starting redemption.
 - Have backup plan if primary mint is unavailable.
 - Save change tokens immediately if partial redemption occurs.
+
+**Choosing Settlement Type:**
+- **STRK Settlement**: Use when you want to send value to a Starknet address, need on-chain settlement, or want to hold STRK tokens.
+- **Lightning Settlement**: Use when paying Lightning invoices directly, sending value off-chain, avoiding on-chain footprint, or when recipient prefers Bitcoin/Lightning.
 
 **For Both:**
 - Monitor transaction status throughout.
@@ -794,7 +862,15 @@ SLPM composes Starknet smart contracts, Atomiq cross-chain swaps, the Lightning 
 - Offline token storage and peer-to-peer transfers
 - Geographic and network context flexibility
 - User-controlled backup and recovery
+- **Flexible settlement options**: Choose at redemption time whether to settle to STRK (on-chain) or pay Lightning invoices (off-chain)
 
-Both modes leverage the same robust infrastructure: Atomiq for cross-chain swaps, Cashu for bearer privacy, and careful handling of signers and forwarding to ensure reliable STRK delivery. The architecture supports both decentralized recipient-controlled claims and a pragmatic shared-signer mode with on-chain forwarding, ensuring reliable operation even under SDK constraints while preserving privacy characteristics.
+The **Lightning settlement option** in Split Mix Redeem provides additional use cases:
+- **Direct Lightning payments**: Pay Lightning invoices without converting to STRK
+- **Maximum privacy**: Avoid any on-chain footprint at redemption (no Starknet transaction)
+- **Cross-ecosystem value transfer**: Move value from Starknet → Cashu → Lightning → Bitcoin ecosystem
+- **Wallet-less redemption**: No need to connect Starknet wallet for Lightning settlement
+- **Invoice payment**: Use ecash tokens to pay existing Lightning invoices from any source
+
+Both modes leverage the same robust infrastructure: Atomiq for cross-chain swaps (when needed), Cashu for bearer privacy, and careful handling of signers and forwarding to ensure reliable delivery. The architecture supports both decentralized recipient-controlled claims and a pragmatic shared-signer mode with on-chain forwarding, ensuring reliable operation even under SDK constraints while preserving privacy characteristics.
 
 Users can choose the mode that best fits their privacy, custody, and usability requirements, with Full Mix optimized for convenience and Split Mix optimized for maximum privacy and control.
